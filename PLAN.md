@@ -1,0 +1,373 @@
+# Implementation Plan: InvoiceIQ MVP - WhatsApp-First Invoicing System
+
+## Phase 1: Project Foundation & Environment Setup (Day 1)
+
+- [x] Create project directory structure (src/app/ with all subdirectories: utils/, services/, routers/)
+- [x] Initialize Python virtual environment and install core dependencies (FastAPI, uvicorn, SQLAlchemy, Pydantic, httpx, python-dotenv)
+- [x] Create requirements.txt with all dependencies including dev tools (pytest, black, ruff, mypy, pytest-cov)
+- [x] Set up .env.example with all required environment variables (WABA*TOKEN, WABA_PHONE_ID, WABA_VERIFY_TOKEN, SMS_API_KEY, MPESA*\*, DATABASE_URL)
+- [x] Create .gitignore file (if not exists, add .env, **pycache**, \*.pyc, .pytest_cache, htmlcov/, .venv/)
+- [x] Initialize src/app/**init**.py as empty module marker
+- [x] Create src/app/config.py with Pydantic BaseSettings for environment variable validation and loading
+- [x] Create src/app/utils/**init**.py and src/app/utils/logging.py with structured JSON logging setup
+- [x] Create src/app/utils/phone.py with MSISDN validation function (regex: ^2547\d{8}$) and normalization logic
+- [x] Write unit tests for phone validation in tests/test_validators.py using pytest
+- [x] Run tests to verify phone validation logic works correctly
+
+**Sub-agent Usage:** Use **toby** to fetch latest FastAPI, SQLAlchemy, and Pydantic documentation for best practices.
+
+**Testing Checkpoint:** Phone validation tests pass; config loads environment variables correctly.
+
+---
+
+## Phase 2: Database Layer & Models (Day 1-2)
+
+- [ ] Create src/app/db.py with SQLAlchemy engine, SessionLocal, and Base declarative class setup
+- [ ] Add database connection helper functions (get_db dependency for FastAPI)
+- [ ] Create src/app/models.py with Invoice model (id, customer_name, msisdn, amount_cents, currency, description, status, pay_ref, pay_link, timestamps)
+- [ ] Add Payment model to models.py (id, invoice_id, method, status, mpesa_receipt, amount_cents, raw_request, raw_callback, idempotency_key, timestamps)
+- [ ] Add MessageLog model to models.py (id, invoice_id, channel, direction, event, payload, timestamp)
+- [ ] Add CHECK constraints for status enums in models (Invoice.status: PENDING/SENT/PAID/CANCELLED/FAILED, Payment.status: INITIATED/SUCCESS/FAILED/EXPIRED)
+- [ ] Create scripts/init_db.sql with raw SQL schema for reference and manual initialization if needed
+- [ ] Create database initialization script in src/app/db.py (create_tables function using Base.metadata.create_all)
+- [ ] Add Alembic for migrations (alembic init alembic, configure env.py with models import)
+- [ ] Create initial migration with Alembic (alembic revision --autogenerate -m "Initial schema")
+- [ ] Write unit tests for model instantiation and validation in tests/test_models.py
+- [ ] Test database connection and table creation locally with SQLite
+
+**Sub-agent Usage:** Use **toby** to get SQLAlchemy 2.0+ best practices and Alembic migration patterns.
+
+**Testing Checkpoint:** Database tables created successfully; models instantiate correctly; Alembic migrations work.
+
+---
+
+## Phase 3: Pydantic Schemas & Validators (Day 2)
+
+- [ ] Create src/app/schemas.py with InvoiceCreate schema (msisdn, customer_name optional, amount_cents, description)
+- [ ] Add InvoiceResponse schema with all invoice fields including id, status, timestamps
+- [ ] Add PaymentCreate schema (invoice_id, idempotency_key)
+- [ ] Add PaymentResponse schema with all payment fields
+- [ ] Add WhatsAppWebhookEvent schema for inbound message parsing
+- [ ] Add custom Pydantic validators for MSISDN format (uses phone.py validation)
+- [ ] Add validator for amount_cents (must be >= 100, i.e., 1 KES minimum)
+- [ ] Add validator for description length (3-120 characters)
+- [ ] Add validator for customer_name length (2-60 characters when provided)
+- [ ] Write unit tests for all Pydantic validators in tests/test_schemas.py
+- [ ] Test edge cases: empty strings, boundary values, invalid formats
+
+**Sub-agent Usage:** Use **jephthah** to generate comprehensive unit tests for schema validators.
+
+**Testing Checkpoint:** All schema validators work correctly; edge cases handled; tests pass.
+
+---
+
+## Phase 4: WhatsApp Webhook Verification & Basic Routing (Day 1-2)
+
+- [ ] Create src/app/main.py with FastAPI app initialization and CORS middleware
+- [ ] Add health check endpoints (GET /healthz returns 200 OK, GET /readyz checks database connection)
+- [ ] Create src/app/routers/**init**.py as empty module marker
+- [ ] Create src/app/routers/whatsapp.py with APIRouter setup
+- [ ] Implement GET /whatsapp/webhook for webhook verification (validate hub.mode, hub.verify_token, return hub.challenge)
+- [ ] Implement POST /whatsapp/webhook stub that logs incoming payload and returns 200 OK
+- [ ] Register WhatsApp router in main.py with prefix /whatsapp
+- [ ] Add request logging middleware to log all incoming webhook requests to message_log table
+- [ ] Write integration test for webhook verification in tests/integration/test_whatsapp_webhook.py
+- [ ] Test webhook verification locally using curl or httpx test client
+
+**Sub-agent Usage:** Use **toby** to fetch WhatsApp Cloud API webhook verification documentation.
+
+**Testing Checkpoint:** Webhook verification works; POST webhook receives and logs messages; health checks pass.
+
+---
+
+## Phase 5: WhatsApp Message Parser & State Machine (Day 2-3)
+
+- [ ] Create src/app/services/**init**.py as empty module marker
+- [ ] Create src/app/services/whatsapp.py with WhatsAppService class
+- [ ] Implement parse_incoming_message function to extract text, sender MSISDN, message type from webhook payload
+- [ ] Create command parser for one-line invoice command (regex: invoice <phone_or_name> <amount> <desc...>)
+- [ ] Add parser support for other commands (remind <invoice_id>, cancel <invoice_id>, help)
+- [ ] Create state machine manager (in-memory dict or Redis for production) to track conversation state per user
+- [ ] Implement state transitions: IDLE ’ COLLECT_PHONE ’ COLLECT_NAME ’ COLLECT_AMOUNT ’ COLLECT_DESCRIPTION ’ READY ’ SENT
+- [ ] Add validation at each collection step (phone, name, amount, description) with error messages
+- [ ] Implement skip/cancel commands during guided flow
+- [ ] Add send_whatsapp_message function with WhatsApp Cloud API integration (POST to graph.facebook.com)
+- [ ] Write unit tests for command parser in tests/test_parser.py
+- [ ] Write unit tests for state machine transitions in tests/test_state_machine.py
+- [ ] Test guided flow with mock WhatsApp API responses
+
+**Sub-agent Usage:** Use **jephthah** to generate unit tests for parser and state machine. Use **toby** for WhatsApp Cloud API message sending documentation.
+
+**Testing Checkpoint:** Parser correctly identifies commands; state machine transitions work; validators applied at each step.
+
+---
+
+## Phase 6: Invoice Creation & Delivery (Day 3)
+
+- [ ] Create src/app/routers/invoices.py with APIRouter setup
+- [ ] Implement POST /invoices endpoint (accepts InvoiceCreate schema, creates database record)
+- [ ] Add invoice ID generation logic (UUID or custom format like INV-{timestamp}-{random})
+- [ ] Implement send_invoice_to_customer function in whatsapp.py (formats message, sends via WhatsApp API with interactive buttons)
+- [ ] Add WhatsApp interactive button support for "Pay with M-PESA" action
+- [ ] Update invoice status from PENDING to SENT after successful delivery
+- [ ] Add error handling for WhatsApp API failures (log error, keep status PENDING)
+- [ ] Create message_log entry for each outbound message attempt
+- [ ] Update POST /whatsapp/webhook to handle button click responses (interactive message replies)
+- [ ] Implement merchant confirmation message after invoice sent (includes invoice ID and available commands)
+- [ ] Wire up guided flow completion to call POST /invoices internally
+- [ ] Write integration test for full invoice creation flow in tests/integration/test_invoice_creation.py
+- [ ] Test with mock WhatsApp API to verify message format and button structure
+
+**Sub-agent Usage:** Use **toby** to get WhatsApp Cloud API interactive buttons documentation and message template formats.
+
+**Testing Checkpoint:** Invoice created in database; WhatsApp message sent with buttons; merchant receives confirmation; status updated correctly.
+
+---
+
+## Phase 7: M-PESA STK Push Integration (Day 4)
+
+- [ ] Create src/app/services/mpesa.py with MPesaService class
+- [ ] Implement OAuth token generation for M-PESA API (using MPESA_CONSUMER_KEY and MPESA_CONSUMER_SECRET)
+- [ ] Add token caching logic with expiration (tokens valid for ~1 hour)
+- [ ] Implement STK Push initiate function (formats request with msisdn, amount, callback URL, account reference)
+- [ ] Add password generation for STK request (base64 encode: shortcode + passkey + timestamp)
+- [ ] Create src/app/routers/payments.py with APIRouter setup
+- [ ] Implement POST /payments/stk/initiate endpoint (requires invoice_id in body)
+- [ ] Add idempotency key validation (check if key exists in payments table, return cached response if duplicate)
+- [ ] Create Payment record with status INITIATED before sending STK request
+- [ ] Store raw M-PESA request payload in payments.raw_request JSON field
+- [ ] Handle M-PESA API errors gracefully (log error, update payment status to FAILED)
+- [ ] Write unit tests for password generation and request formatting in tests/test_mpesa.py
+- [ ] Write integration test for STK initiate in tests/integration/test_stk_push.py with mock M-PESA API
+
+**Sub-agent Usage:** Use **toby** to fetch M-PESA Daraja API STK Push documentation and best practices.
+
+**Testing Checkpoint:** STK Push request sent successfully; payment record created; idempotency works; errors handled.
+
+---
+
+## Phase 8: M-PESA Callback Handling & Payment Completion (Day 4)
+
+- [ ] Create src/app/services/idempotency.py with idempotency key generation and validation functions
+- [ ] Implement POST /payments/stk/callback endpoint in payments.py router
+- [ ] Add callback payload parsing (extract ResultCode, MerchantRequestID, CheckoutRequestID, M-PESA receipt)
+- [ ] Update Payment record with callback data (store in raw_callback, update status based on ResultCode)
+- [ ] Update Invoice status to PAID if payment SUCCESS, or FAILED if payment failed
+- [ ] Implement send_receipt_to_customer function in whatsapp.py (formats receipt message with invoice details and M-PESA receipt number)
+- [ ] Implement send_receipt_to_merchant function (notifies merchant of successful payment)
+- [ ] Add message_log entries for receipt messages
+- [ ] Handle callback validation (check signature or IP whitelist if required by M-PESA)
+- [ ] Add idempotency check for callback (prevent duplicate processing of same callback)
+- [ ] Write integration test for full payment flow in tests/integration/test_payment_flow.py (invoice creation ’ STK ’ callback ’ receipts)
+- [ ] Test callback with various ResultCodes (0 for success, non-zero for failures)
+
+**Sub-agent Usage:** Use **toby** to get M-PESA callback payload structure and ResultCode meanings.
+
+**Testing Checkpoint:** Callback processed correctly; invoice and payment statuses updated; receipts sent to both parties; duplicate callbacks ignored.
+
+---
+
+## Phase 9: SMS Fallback Integration (Day 5)
+
+- [ ] Create src/app/services/sms.py with SMSService class (choose provider: Africa's Talking or Twilio)
+- [ ] Implement send_sms function with provider API integration
+- [ ] Add SMS message formatting for invoice notification (include amount, invoice ID, payment link or shortcode)
+- [ ] Create src/app/routers/sms.py with APIRouter setup
+- [ ] Implement POST /sms/inbound endpoint for receiving SMS replies from customers
+- [ ] Implement POST /sms/status endpoint for delivery receipt callbacks
+- [ ] Add fallback logic in send_invoice_to_customer: try WhatsApp first, if fails then send SMS
+- [ ] Update message_log to record SMS channel for fallback messages
+- [ ] Add basic SMS command parsing for customer replies (e.g., "PAY" keyword for future use)
+- [ ] Write integration test for SMS fallback in tests/integration/test_sms_fallback.py
+- [ ] Test with SMS provider sandbox or mock API
+
+**Sub-agent Usage:** Use **toby** to fetch Africa's Talking or Twilio SMS API documentation.
+
+**Testing Checkpoint:** SMS sent successfully when WhatsApp fails; delivery receipts logged; inbound SMS received.
+
+---
+
+## Phase 10: Enhanced Logging & Message Audit Trail (Day 6)
+
+- [ ] Update all WhatsApp message sends to create message_log entries with full payload
+- [ ] Update all SMS sends to create message_log entries
+- [ ] Add structured logging for all API calls (WhatsApp, SMS, M-PESA) with request/response details
+- [ ] Create helper function in logging.py for consistent log formatting (include timestamp, level, service, event, metadata)
+- [ ] Add error logging with stack traces for all exception handlers
+- [ ] Implement log correlation IDs (generate UUID per request, include in all related logs)
+- [ ] Add logging for state machine transitions (log current state, next state, trigger)
+- [ ] Log all payment events: initiate, callback received, status updates
+- [ ] Write queries or scripts to analyze message_log table (delivery rates, channel distribution)
+- [ ] Test log output format and ensure JSON structure is parseable
+
+**Testing Checkpoint:** All messages logged to database; logs are structured and queryable; correlation IDs present.
+
+---
+
+## Phase 11: Metrics & Observability (Day 6)
+
+- [ ] Add Prometheus client library to requirements.txt (or use custom metrics counter)
+- [ ] Create metrics collection in main.py (counters for invoices_created, invoices_sent, invoices_paid)
+- [ ] Add histogram for time-to-pay metric (track time from SENT to PAID status)
+- [ ] Expose GET /metrics endpoint for Prometheus scraping (or use FastAPI middleware)
+- [ ] Add logging of key metrics in structured format for log-based monitoring
+- [ ] Create database query functions to calculate conversion rate (paid/sent) and average payment time
+- [ ] Add endpoint GET /stats/summary to return basic stats (total invoices, paid invoices, conversion rate)
+- [ ] Write tests for metrics collection in tests/test_metrics.py
+- [ ] Verify metrics endpoint returns correct format
+
+**Testing Checkpoint:** Metrics collected correctly; /metrics endpoint accessible; stats calculations accurate.
+
+---
+
+## Phase 12: End-to-End Integration Testing (Day 6-7)
+
+- [ ] Set up pytest fixtures for test database (use SQLite in-memory or separate test DB)
+- [ ] Create mock services for external APIs (WhatsApp, SMS, M-PESA) using pytest-mock or responses library
+- [ ] Write end-to-end test: merchant sends one-line invoice command ’ invoice created ’ customer receives WhatsApp ’ customer clicks pay ’ STK sent ’ callback ’ receipts sent
+- [ ] Write end-to-end test for guided flow: step-by-step invoice creation with all validation steps
+- [ ] Write test for SMS fallback: WhatsApp fails ’ SMS sent ’ delivery receipt logged
+- [ ] Write test for payment failure: STK callback with non-zero ResultCode ’ invoice status FAILED ’ merchant notified
+- [ ] Write test for idempotency: duplicate STK request with same key ’ returns cached response, no duplicate charge
+- [ ] Write test for concurrent requests: multiple invoices created simultaneously ’ all processed correctly
+- [ ] Write test for invalid inputs at each step: malformed phone, negative amount, empty description
+- [ ] Run full test suite with coverage report (pytest --cov=. --cov-report=html)
+- [ ] Ensure minimum 80% code coverage on core business logic
+
+**Sub-agent Usage:** Use **jephthah** to generate comprehensive integration tests.
+
+**Testing Checkpoint:** All integration tests pass; coverage target met; edge cases handled correctly.
+
+---
+
+## Phase 13: Error Handling & Resilience (Day 5-6)
+
+- [ ] Add global exception handler in main.py to catch unhandled exceptions and return 500 with error ID
+- [ ] Implement retry logic for WhatsApp API calls (3 retries with exponential backoff)
+- [ ] Implement retry logic for SMS API calls
+- [ ] Implement retry logic for M-PESA token generation and STK requests
+- [ ] Add timeout configuration for all external HTTP requests (default 10 seconds)
+- [ ] Add validation for all webhook signatures (WhatsApp HMAC if available, or IP whitelist)
+- [ ] Implement rate limiting for invoice creation endpoint (e.g., max 10 per minute per user)
+- [ ] Add circuit breaker pattern for M-PESA API (stop sending requests if API is down)
+- [ ] Create custom exception classes for domain errors (InvoiceNotFound, PaymentFailed, InvalidMSISDN)
+- [ ] Add user-friendly error messages in bot responses (avoid exposing technical details)
+- [ ] Write tests for retry logic in tests/test_resilience.py
+- [ ] Test error scenarios: API timeouts, network errors, invalid responses
+
+**Testing Checkpoint:** Retries work correctly; rate limiting enforced; errors logged and handled gracefully.
+
+---
+
+## Phase 14: Deployment Preparation (Day 7)
+
+- [ ] Create Dockerfile for containerized deployment (Python 3.11+, install dependencies, expose port 8000)
+- [ ] Add docker-compose.yml for local development (includes app service and postgres service)
+- [ ] Create scripts/run.sh for running the application with uvicorn (includes environment variable loading)
+- [ ] Write deployment runbook in docs/RUNBOOK.md (includes setup steps, environment variables, database migrations, health checks)
+- [ ] Document webhook URL setup for WhatsApp Business API configuration
+- [ ] Document M-PESA callback URL registration process
+- [ ] Add README.md with project overview, quick start guide, and links to documentation
+- [ ] Create .env.example with all required variables and example values (with placeholders for secrets)
+- [ ] Test Docker build and run locally
+- [ ] Test database migration in Docker container (alembic upgrade head)
+- [ ] Verify all webhooks work with ngrok or similar tunneling for local testing
+- [ ] Document SSL/TLS requirements for production webhooks (WhatsApp and M-PESA require HTTPS)
+
+**Testing Checkpoint:** Docker container builds and runs successfully; database migrations work; webhooks accessible.
+
+---
+
+## Phase 15: Production Readiness & Pilot Testing (Day 7)
+
+- [ ] Deploy application to production server or serverless platform (e.g., Railway, Render, AWS Lambda)
+- [ ] Configure production database (Supabase Postgres or managed PostgreSQL)
+- [ ] Run database migrations in production (alembic upgrade head)
+- [ ] Configure production environment variables in deployment platform
+- [ ] Set up reverse proxy with SSL (Caddy or Nginx) if using VPS deployment
+- [ ] Register webhook URLs with WhatsApp Business API (verify webhook using production URL)
+- [ ] Register M-PESA callback URL with Safaricom or payment provider
+- [ ] Verify WhatsApp number is active and verified in Meta Business Suite
+- [ ] Perform smoke tests on production: health check, webhook verification, create test invoice
+- [ ] Execute live end-to-end test: create real invoice ’ send to test customer number ’ initiate STK ’ complete payment ’ verify receipts
+- [ ] Monitor logs during pilot test for any errors or warnings
+- [ ] Document any issues found and create bug fix tasks
+- [ ] Perform final security review: validate all webhooks, check secret exposure, test rate limits
+- [ ] Create monitoring alerts for critical errors (payment failures, webhook delivery failures)
+- [ ] Mark MVP as DONE if all acceptance criteria met
+
+**Testing Checkpoint:** Live payment successfully completed; all webhooks working; no critical errors in production logs.
+
+---
+
+## Phase 16: Documentation & Handoff (Day 7)
+
+- [ ] Complete RUNBOOK.md with operational procedures (start/stop service, check logs, manual invoice creation)
+- [ ] Document troubleshooting guide for common issues (webhook failures, payment stuck, SMS not delivered)
+- [ ] Add API documentation using FastAPI's automatic OpenAPI docs (accessible at /docs)
+- [ ] Document WhatsApp bot commands and guided flow in user guide
+- [ ] Create testing checklist for future releases
+- [ ] Document known limitations and post-MVP roadmap items
+- [ ] Add contributing guidelines if planning to open source or collaborate
+- [ ] Review all TODO comments in code and create tasks for any remaining items
+- [ ] Tag release version in git (v1.0.0-mvp)
+- [ ] Create release notes summarizing MVP features and known issues
+
+**Testing Checkpoint:** Documentation complete and accurate; runbook verified with deployment test; API docs accessible.
+
+---
+
+## Dependencies & Notes
+
+**Phase Dependencies:**
+
+- Phase 2 depends on Phase 1 (database requires config and logging)
+- Phase 3 depends on Phase 2 (schemas use models)
+- Phase 4 can run in parallel with Phase 3
+- Phase 5 depends on Phase 4 (webhook handler needs routing)
+- Phase 6 depends on Phases 2, 3, 5 (invoice creation needs models, schemas, parser)
+- Phase 7 depends on Phase 6 (STK needs invoice context)
+- Phase 8 depends on Phase 7 (callback handler needs STK implementation)
+- Phase 9 can run in parallel with Phase 7-8
+- Phase 10-11 can run in parallel after Phase 8
+- Phase 12 requires all feature phases complete (1-11)
+- Phase 13 can be integrated throughout development but finalized before Phase 14
+- Phase 14 depends on all features complete
+- Phase 15 depends on Phase 14
+- Phase 16 runs in parallel with Phase 15
+
+**Critical Implementation Notes:**
+
+- Idempotency is CRITICAL for payment handling - must be implemented before STK testing
+- MSISDN validation must be strict (E.164 format without +) to prevent delivery failures
+- All external API calls must have timeouts and retry logic
+- State machine must persist across server restarts for production (use Redis or database, not in-memory)
+- WhatsApp interactive buttons require specific JSON format - consult API docs carefully
+- M-PESA password generation is time-sensitive - generate fresh for each request
+- Message templates may need Meta approval - use session messages for MVP to avoid delays
+
+**Sub-Agent Summary:**
+
+- **toby**: Use for fetching documentation (FastAPI, SQLAlchemy, WhatsApp API, M-PESA Daraja API, SMS providers)
+- **jephthah**: Use for generating unit tests (validators, parsers, state machine) and integration tests
+- **wanderer**: Use if codebase exploration needed during development (currently N/A for greenfield project)
+
+**Testing Strategy:**
+
+- Unit tests after each service/utility implementation
+- Integration tests after each major feature (invoice creation, payment flow, SMS fallback)
+- End-to-end tests before deployment
+- Live pilot test as final acceptance test
+
+**MVP Success Criteria (Revalidated):**
+
+- [ ] Merchant can create invoice with one-line command OR step-by-step guided flow
+- [ ] Customer receives invoice via WhatsApp with "Pay with M-PESA" button
+- [ ] Customer can tap button and complete STK Push payment
+- [ ] Both merchant and customer receive payment receipts upon successful payment
+- [ ] SMS fallback works when WhatsApp delivery fails
+- [ ] All messages and payment events logged to database
+- [ ] Idempotency prevents duplicate charges
+- [ ] System deployed and publicly accessible with valid HTTPS webhooks
+- [ ] At least 1 successful live end-to-end payment completed
+- [ ] Operational runbook written and tested
