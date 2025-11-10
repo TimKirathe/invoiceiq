@@ -22,6 +22,8 @@
 
 ## Phase 2: Database Layer & Models (Day 1-2)
 
+**Note:** SQLAlchemy is the ORM layer that abstracts database operations. For local development, use SQLite or local PostgreSQL. The same SQLAlchemy code will work with Supabase Postgres in production (Phase 15) by simply changing the DATABASE_URL environment variable. SQLAlchemy provides database portability - no code changes needed when switching database providers.
+
 - [ ] Create src/app/db.py with SQLAlchemy engine, SessionLocal, and Base declarative class setup
 - [ ] Add database connection helper functions (get_db dependency for FastAPI)
 - [ ] Create src/app/models.py with Invoice model (id, customer_name, msisdn, amount_cents, currency, description, status, pay_ref, pay_link, timestamps)
@@ -88,7 +90,7 @@
 - [ ] Create command parser for one-line invoice command (regex: invoice <phone_or_name> <amount> <desc...>)
 - [ ] Add parser support for other commands (remind <invoice_id>, cancel <invoice_id>, help)
 - [ ] Create state machine manager (in-memory dict or Redis for production) to track conversation state per user
-- [ ] Implement state transitions: IDLE ’ COLLECT_PHONE ’ COLLECT_NAME ’ COLLECT_AMOUNT ’ COLLECT_DESCRIPTION ’ READY ’ SENT
+- [ ] Implement state transitions: IDLE ï¿½ COLLECT_PHONE ï¿½ COLLECT_NAME ï¿½ COLLECT_AMOUNT ï¿½ COLLECT_DESCRIPTION ï¿½ READY ï¿½ SENT
 - [ ] Add validation at each collection step (phone, name, amount, description) with error messages
 - [ ] Implement skip/cancel commands during guided flow
 - [ ] Add send_whatsapp_message function with WhatsApp Cloud API integration (POST to graph.facebook.com)
@@ -158,7 +160,7 @@
 - [ ] Add message_log entries for receipt messages
 - [ ] Handle callback validation (check signature or IP whitelist if required by M-PESA)
 - [ ] Add idempotency check for callback (prevent duplicate processing of same callback)
-- [ ] Write integration test for full payment flow in tests/integration/test_payment_flow.py (invoice creation ’ STK ’ callback ’ receipts)
+- [ ] Write integration test for full payment flow in tests/integration/test_payment_flow.py (invoice creation ï¿½ STK ï¿½ callback ï¿½ receipts)
 - [ ] Test callback with various ResultCodes (0 for success, non-zero for failures)
 
 **Sub-agent Usage:** Use **toby** to get M-PESA callback payload structure and ResultCode meanings.
@@ -224,12 +226,12 @@
 
 - [ ] Set up pytest fixtures for test database (use SQLite in-memory or separate test DB)
 - [ ] Create mock services for external APIs (WhatsApp, SMS, M-PESA) using pytest-mock or responses library
-- [ ] Write end-to-end test: merchant sends one-line invoice command ’ invoice created ’ customer receives WhatsApp ’ customer clicks pay ’ STK sent ’ callback ’ receipts sent
+- [ ] Write end-to-end test: merchant sends one-line invoice command ï¿½ invoice created ï¿½ customer receives WhatsApp ï¿½ customer clicks pay ï¿½ STK sent ï¿½ callback ï¿½ receipts sent
 - [ ] Write end-to-end test for guided flow: step-by-step invoice creation with all validation steps
-- [ ] Write test for SMS fallback: WhatsApp fails ’ SMS sent ’ delivery receipt logged
-- [ ] Write test for payment failure: STK callback with non-zero ResultCode ’ invoice status FAILED ’ merchant notified
-- [ ] Write test for idempotency: duplicate STK request with same key ’ returns cached response, no duplicate charge
-- [ ] Write test for concurrent requests: multiple invoices created simultaneously ’ all processed correctly
+- [ ] Write test for SMS fallback: WhatsApp fails ï¿½ SMS sent ï¿½ delivery receipt logged
+- [ ] Write test for payment failure: STK callback with non-zero ResultCode ï¿½ invoice status FAILED ï¿½ merchant notified
+- [ ] Write test for idempotency: duplicate STK request with same key ï¿½ returns cached response, no duplicate charge
+- [ ] Write test for concurrent requests: multiple invoices created simultaneously ï¿½ all processed correctly
 - [ ] Write test for invalid inputs at each step: malformed phone, negative amount, empty description
 - [ ] Run full test suite with coverage report (pytest --cov=. --cov-report=html)
 - [ ] Ensure minimum 80% code coverage on core business logic
@@ -280,6 +282,8 @@
 
 ## Phase 15: Production Readiness & Pilot Testing (Day 7)
 
+**Note:** The SQLAlchemy code written in Phase 2 requires NO changes for production. Simply update the DATABASE_URL environment variable to point to Supabase Postgres (or any PostgreSQL provider). SQLAlchemy's abstraction layer handles the connection - this is the benefit of using an ORM.
+
 - [ ] Deploy application to production server or serverless platform (e.g., Railway, Render, AWS Lambda)
 - [ ] Configure production database (Supabase Postgres or managed PostgreSQL)
 - [ ] Run database migrations in production (alembic upgrade head)
@@ -289,7 +293,7 @@
 - [ ] Register M-PESA callback URL with Safaricom or payment provider
 - [ ] Verify WhatsApp number is active and verified in Meta Business Suite
 - [ ] Perform smoke tests on production: health check, webhook verification, create test invoice
-- [ ] Execute live end-to-end test: create real invoice ’ send to test customer number ’ initiate STK ’ complete payment ’ verify receipts
+- [ ] Execute live end-to-end test: create real invoice ï¿½ send to test customer number ï¿½ initiate STK ï¿½ complete payment ï¿½ verify receipts
 - [ ] Monitor logs during pilot test for any errors or warnings
 - [ ] Document any issues found and create bug fix tasks
 - [ ] Perform final security review: validate all webhooks, check secret exposure, test rate limits
