@@ -45,17 +45,17 @@
 
 ## Phase 3: Pydantic Schemas & Validators (Day 2)
 
-- [ ] Create src/app/schemas.py with InvoiceCreate schema (msisdn, customer_name optional, amount_cents, description)
-- [ ] Add InvoiceResponse schema with all invoice fields including id, status, timestamps
-- [ ] Add PaymentCreate schema (invoice_id, idempotency_key)
-- [ ] Add PaymentResponse schema with all payment fields
-- [ ] Add WhatsAppWebhookEvent schema for inbound message parsing
-- [ ] Add custom Pydantic validators for MSISDN format (uses phone.py validation)
-- [ ] Add validator for amount_cents (must be >= 100, i.e., 1 KES minimum)
-- [ ] Add validator for description length (3-120 characters)
-- [ ] Add validator for customer_name length (2-60 characters when provided)
-- [ ] Write unit tests for all Pydantic validators in tests/test_schemas.py
-- [ ] Test edge cases: empty strings, boundary values, invalid formats
+- [x] Create src/app/schemas.py with InvoiceCreate schema (msisdn, customer_name optional, amount_cents, description)
+- [x] Add InvoiceResponse schema with all invoice fields including id, status, timestamps
+- [x] Add PaymentCreate schema (invoice_id, idempotency_key)
+- [x] Add PaymentResponse schema with all payment fields
+- [x] Add WhatsAppWebhookEvent schema for inbound message parsing
+- [x] Add custom Pydantic validators for MSISDN format (uses phone.py validation)
+- [x] Add validator for amount_cents (must be >= 100, i.e., 1 KES minimum)
+- [x] Add validator for description length (3-120 characters)
+- [x] Add validator for customer_name length (2-60 characters when provided)
+- [x] Write unit tests for all Pydantic validators in tests/test_schemas.py
+- [x] Test edge cases: empty strings, boundary values, invalid formats
 
 **Sub-agent Usage:** Use **jephthah** to generate comprehensive unit tests for schema validators.
 
