@@ -24,18 +24,18 @@
 
 **Note:** SQLAlchemy is the ORM layer that abstracts database operations. For local development, use SQLite or local PostgreSQL. The same SQLAlchemy code will work with Supabase Postgres in production (Phase 15) by simply changing the DATABASE_URL environment variable. SQLAlchemy provides database portability - no code changes needed when switching database providers.
 
-- [ ] Create src/app/db.py with SQLAlchemy engine, SessionLocal, and Base declarative class setup
-- [ ] Add database connection helper functions (get_db dependency for FastAPI)
-- [ ] Create src/app/models.py with Invoice model (id, customer_name, msisdn, amount_cents, currency, description, status, pay_ref, pay_link, timestamps)
-- [ ] Add Payment model to models.py (id, invoice_id, method, status, mpesa_receipt, amount_cents, raw_request, raw_callback, idempotency_key, timestamps)
-- [ ] Add MessageLog model to models.py (id, invoice_id, channel, direction, event, payload, timestamp)
-- [ ] Add CHECK constraints for status enums in models (Invoice.status: PENDING/SENT/PAID/CANCELLED/FAILED, Payment.status: INITIATED/SUCCESS/FAILED/EXPIRED)
-- [ ] Create scripts/init_db.sql with raw SQL schema for reference and manual initialization if needed
-- [ ] Create database initialization script in src/app/db.py (create_tables function using Base.metadata.create_all)
-- [ ] Add Alembic for migrations (alembic init alembic, configure env.py with models import)
-- [ ] Create initial migration with Alembic (alembic revision --autogenerate -m "Initial schema")
-- [ ] Write unit tests for model instantiation and validation in tests/test_models.py
-- [ ] Test database connection and table creation locally with SQLite
+- [x] Create src/app/db.py with SQLAlchemy engine, SessionLocal, and Base declarative class setup
+- [x] Add database connection helper functions (get_db dependency for FastAPI)
+- [x] Create src/app/models.py with Invoice model (id, customer_name, msisdn, amount_cents, currency, description, status, pay_ref, pay_link, timestamps)
+- [x] Add Payment model to models.py (id, invoice_id, method, status, mpesa_receipt, amount_cents, raw_request, raw_callback, idempotency_key, timestamps)
+- [x] Add MessageLog model to models.py (id, invoice_id, channel, direction, event, payload, timestamp)
+- [x] Add CHECK constraints for status enums in models (Invoice.status: PENDING/SENT/PAID/CANCELLED/FAILED, Payment.status: INITIATED/SUCCESS/FAILED/EXPIRED)
+- [x] Create scripts/init_db.sql with raw SQL schema for reference and manual initialization if needed
+- [x] Create database initialization script in src/app/db.py (create_tables function using Base.metadata.create_all)
+- [x] Add Alembic for migrations (alembic init alembic, configure env.py with models import)
+- [x] Create initial migration with Alembic (alembic revision --autogenerate -m "Initial schema")
+- [x] Write unit tests for model instantiation and validation in tests/test_models.py
+- [x] Test database connection and table creation locally with SQLite
 
 **Sub-agent Usage:** Use **toby** to get SQLAlchemy 2.0+ best practices and Alembic migration patterns.
 
