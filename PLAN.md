@@ -152,19 +152,19 @@ See Phase 16 for detailed multi-tenancy migration strategy and database schema c
 
 ## Phase 7: M-PESA STK Push Integration (Day 4)
 
-- [ ] Create src/app/services/mpesa.py with MPesaService class
-- [ ] Implement OAuth token generation for M-PESA API (using MPESA_CONSUMER_KEY and MPESA_CONSUMER_SECRET)
-- [ ] Add token caching logic with expiration (tokens valid for ~1 hour)
-- [ ] Implement STK Push initiate function (formats request with msisdn, amount, callback URL, account reference)
-- [ ] Add password generation for STK request (base64 encode: shortcode + passkey + timestamp)
-- [ ] Create src/app/routers/payments.py with APIRouter setup
-- [ ] Implement POST /payments/stk/initiate endpoint (requires invoice_id in body)
-- [ ] Add idempotency key validation (check if key exists in payments table, return cached response if duplicate)
-- [ ] Create Payment record with status INITIATED before sending STK request
-- [ ] Store raw M-PESA request payload in payments.raw_request JSON field
-- [ ] Handle M-PESA API errors gracefully (log error, update payment status to FAILED)
-- [ ] Write unit tests for password generation and request formatting in tests/test_mpesa.py
-- [ ] Write integration test for STK initiate in tests/integration/test_stk_push.py with mock M-PESA API
+- [x] Create src/app/services/mpesa.py with MPesaService class
+- [x] Implement OAuth token generation for M-PESA API (using MPESA_CONSUMER_KEY and MPESA_CONSUMER_SECRET)
+- [x] Add token caching logic with expiration (tokens valid for ~1 hour)
+- [x] Implement STK Push initiate function (formats request with msisdn, amount, callback URL, account reference)
+- [x] Add password generation for STK request (base64 encode: shortcode + passkey + timestamp)
+- [x] Create src/app/routers/payments.py with APIRouter setup
+- [x] Implement POST /payments/stk/initiate endpoint (requires invoice_id in body)
+- [x] Add idempotency key validation (check if key exists in payments table, return cached response if duplicate)
+- [x] Create Payment record with status INITIATED before sending STK request
+- [x] Store raw M-PESA request payload in payments.raw_request JSON field
+- [x] Handle M-PESA API errors gracefully (log error, update payment status to FAILED)
+- [x] Write unit tests for password generation and request formatting in tests/test_mpesa.py
+- [x] Write integration test for STK initiate in tests/integration/test_stk_push.py with mock M-PESA API
 
 **Sub-agent Usage:** Use **toby** to fetch M-PESA Daraja API STK Push documentation and best practices.
 

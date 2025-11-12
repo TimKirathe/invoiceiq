@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     mpesa_shortcode: str
     mpesa_passkey: str
     mpesa_callback_url: str
+    mpesa_environment: str = "sandbox"  # "sandbox" or "production"
 
     # Database Configuration
     database_url: str
