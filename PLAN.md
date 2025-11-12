@@ -1,5 +1,28 @@
 # Implementation Plan: InvoiceIQ MVP - WhatsApp-First Invoicing System
 
+## Architecture Decision: Single-Tenant MVP
+
+**IMPORTANT:** This MVP is designed as a **single-tenant system** (one merchant per deployment instance). This means:
+
+- One merchant's WhatsApp Business credentials (WABA_PHONE_ID, WABA_TOKEN) are configured via environment variables
+- The entire application serves a single merchant/business owner
+- All invoices created belong to this one merchant
+- This approach allows rapid validation of the core business model without multi-tenancy complexity
+
+**Post-MVP Multi-Tenancy Migration:**
+
+Once the business model is proven (typically after 3+ paying merchants), consider refactoring to multi-tenant architecture:
+
+1. **Quick Multi-Tenant Approach**: Use a shared WhatsApp number with merchant identification in messages
+2. **Full Multi-Tenant Approach**: Add merchant registration, database-stored credentials, merchant authentication
+3. **Deployment Options**:
+   - Per-merchant deployments (simplest scaling path)
+   - True multi-tenant SaaS platform (requires significant refactoring)
+
+See Phase 16 for detailed multi-tenancy migration strategy and database schema changes needed.
+
+---
+
 ## Phase 1: Project Foundation & Environment Setup (Day 1)
 
 - [x] Create project directory structure (src/app/ with all subdirectories: utils/, services/, routers/)
@@ -65,16 +88,16 @@
 
 ## Phase 4: WhatsApp Webhook Verification & Basic Routing (Day 1-2)
 
-- [ ] Create src/app/main.py with FastAPI app initialization and CORS middleware
-- [ ] Add health check endpoints (GET /healthz returns 200 OK, GET /readyz checks database connection)
-- [ ] Create src/app/routers/**init**.py as empty module marker
-- [ ] Create src/app/routers/whatsapp.py with APIRouter setup
-- [ ] Implement GET /whatsapp/webhook for webhook verification (validate hub.mode, hub.verify_token, return hub.challenge)
-- [ ] Implement POST /whatsapp/webhook stub that logs incoming payload and returns 200 OK
-- [ ] Register WhatsApp router in main.py with prefix /whatsapp
-- [ ] Add request logging middleware to log all incoming webhook requests to message_log table
-- [ ] Write integration test for webhook verification in tests/integration/test_whatsapp_webhook.py
-- [ ] Test webhook verification locally using curl or httpx test client
+- [x] Create src/app/main.py with FastAPI app initialization and CORS middleware
+- [x] Add health check endpoints (GET /healthz returns 200 OK, GET /readyz checks database connection)
+- [x] Create src/app/routers/**init**.py as empty module marker
+- [x] Create src/app/routers/whatsapp.py with APIRouter setup
+- [x] Implement GET /whatsapp/webhook for webhook verification (validate hub.mode, hub.verify_token, return hub.challenge)
+- [x] Implement POST /whatsapp/webhook stub that logs incoming payload and returns 200 OK
+- [x] Register WhatsApp router in main.py with prefix /whatsapp
+- [x] Add request logging middleware to log all incoming webhook requests to message_log table
+- [x] Write integration test for webhook verification in tests/integration/test_whatsapp_webhook.py
+- [x] Test webhook verification locally using curl or httpx test client
 
 **Sub-agent Usage:** Use **toby** to fetch WhatsApp Cloud API webhook verification documentation.
 
@@ -84,19 +107,20 @@
 
 ## Phase 5: WhatsApp Message Parser & State Machine (Day 2-3)
 
-- [ ] Create src/app/services/**init**.py as empty module marker
-- [ ] Create src/app/services/whatsapp.py with WhatsAppService class
-- [ ] Implement parse_incoming_message function to extract text, sender MSISDN, message type from webhook payload
-- [ ] Create command parser for one-line invoice command (regex: invoice <phone_or_name> <amount> <desc...>)
-- [ ] Add parser support for other commands (remind <invoice_id>, cancel <invoice_id>, help)
-- [ ] Create state machine manager (in-memory dict or Redis for production) to track conversation state per user
-- [ ] Implement state transitions: IDLE � COLLECT_PHONE � COLLECT_NAME � COLLECT_AMOUNT � COLLECT_DESCRIPTION � READY � SENT
-- [ ] Add validation at each collection step (phone, name, amount, description) with error messages
-- [ ] Implement skip/cancel commands during guided flow
-- [ ] Add send_whatsapp_message function with WhatsApp Cloud API integration (POST to graph.facebook.com)
-- [ ] Write unit tests for command parser in tests/test_parser.py
-- [ ] Write unit tests for state machine transitions in tests/test_state_machine.py
-- [ ] Test guided flow with mock WhatsApp API responses
+- [x] Create src/app/services/**init**.py as empty module marker
+- [x] Create src/app/services/whatsapp.py with WhatsAppService class
+- [x] Implement parse_incoming_message function to extract text, sender MSISDN, message type from webhook payload
+- [x] Create command parser for one-line invoice command (regex: invoice <phone_or_name> <amount> <desc...>)
+- [x] Add parser support for other commands (remind <invoice_id>, cancel <invoice_id>, help)
+- [x] Create state machine manager (in-memory dict or Redis for production) to track conversation state per user
+  - **MVP Note:** Use in-memory dict for MVP. Redis migration is deferred to Phase 15 (production deployment).
+- [x] Implement state transitions: IDLE � COLLECT_PHONE � COLLECT_NAME � COLLECT_AMOUNT � COLLECT_DESCRIPTION � READY � SENT
+- [x] Add validation at each collection step (phone, name, amount, description) with error messages
+- [x] Implement skip/cancel commands during guided flow
+- [x] Add send_whatsapp_message function with WhatsApp Cloud API integration (POST to graph.facebook.com)
+- [x] Write unit tests for command parser in tests/test_parser.py
+- [x] Write unit tests for state machine transitions in tests/test_state_machine.py
+- [x] Test guided flow with mock WhatsApp API responses
 
 **Sub-agent Usage:** Use **jephthah** to generate unit tests for parser and state machine. Use **toby** for WhatsApp Cloud API message sending documentation.
 
@@ -104,23 +128,23 @@
 
 ---
 
-## Phase 6: Invoice Creation & Delivery (Day 3)
+## Phase 6: Invoice Creation & Delivery (Day 3) ✅
 
-- [ ] Create src/app/routers/invoices.py with APIRouter setup
-- [ ] Implement POST /invoices endpoint (accepts InvoiceCreate schema, creates database record)
-- [ ] Add invoice ID generation logic (UUID or custom format like INV-{timestamp}-{random})
-- [ ] Implement send_invoice_to_customer function in whatsapp.py (formats message, sends via WhatsApp API with interactive buttons)
-- [ ] Add WhatsApp interactive button support for "Pay with M-PESA" action
-- [ ] Update invoice status from PENDING to SENT after successful delivery
-- [ ] Add error handling for WhatsApp API failures (log error, keep status PENDING)
-- [ ] Create message_log entry for each outbound message attempt
-- [ ] Update POST /whatsapp/webhook to handle button click responses (interactive message replies)
-- [ ] Implement merchant confirmation message after invoice sent (includes invoice ID and available commands)
-- [ ] Wire up guided flow completion to call POST /invoices internally
-- [ ] Write integration test for full invoice creation flow in tests/integration/test_invoice_creation.py
-- [ ] Test with mock WhatsApp API to verify message format and button structure
+- [x] Create src/app/routers/invoices.py with APIRouter setup
+- [x] Implement POST /invoices endpoint (accepts InvoiceCreate schema, creates database record)
+- [x] Add invoice ID generation logic (UUID or custom format like INV-{timestamp}-{random})
+- [x] Implement send_invoice_to_customer function in whatsapp.py (formats message, sends via WhatsApp API with interactive buttons)
+- [x] Add WhatsApp interactive button support for "Pay with M-PESA" action
+- [x] Update invoice status from PENDING to SENT after successful delivery
+- [x] Add error handling for WhatsApp API failures (log error, keep status PENDING)
+- [x] Create message_log entry for each outbound message attempt
+- [x] Update POST /whatsapp/webhook to handle button click responses (interactive message replies)
+- [x] Implement merchant confirmation message after invoice sent (includes invoice ID and available commands)
+- [x] Wire up guided flow completion to call POST /invoices internally
+- [x] Write integration test for full invoice creation flow in tests/integration/test_invoice_creation.py
+- [x] Test with mock WhatsApp API to verify message format and button structure
 
-**Sub-agent Usage:** Use **toby** to get WhatsApp Cloud API interactive buttons documentation and message template formats.
+**Sub-agent Usage:** Used context7 MCP to get WhatsApp Cloud API interactive buttons documentation and message template formats.
 
 **Testing Checkpoint:** Invoice created in database; WhatsApp message sent with buttons; merchant receives confirmation; status updated correctly.
 
@@ -284,7 +308,10 @@
 
 **Note:** The SQLAlchemy code written in Phase 2 requires NO changes for production. Simply update the DATABASE_URL environment variable to point to Supabase Postgres (or any PostgreSQL provider). SQLAlchemy's abstraction layer handles the connection - this is the benefit of using an ORM.
 
+**State Machine Note:** For production deployment, migrate the in-memory state machine from Phase 5 to Redis for persistence across server restarts and horizontal scaling. Add Redis connection configuration and update state storage/retrieval logic.
+
 - [ ] Deploy application to production server or serverless platform (e.g., Railway, Render, AWS Lambda)
+- [ ] Migrate state machine from in-memory dict to Redis for production persistence
 - [ ] Configure production database (Supabase Postgres or managed PostgreSQL)
 - [ ] Run database migrations in production (alembic upgrade head)
 - [ ] Configure production environment variables in deployment platform
@@ -312,12 +339,117 @@
 - [ ] Document WhatsApp bot commands and guided flow in user guide
 - [ ] Create testing checklist for future releases
 - [ ] Document known limitations and post-MVP roadmap items
+- [ ] Document multi-tenancy migration strategy in POST_MVP_ROADMAP.md (see below)
 - [ ] Add contributing guidelines if planning to open source or collaborate
 - [ ] Review all TODO comments in code and create tasks for any remaining items
 - [ ] Tag release version in git (v1.0.0-mvp)
 - [ ] Create release notes summarizing MVP features and known issues
 
 **Testing Checkpoint:** Documentation complete and accurate; runbook verified with deployment test; API docs accessible.
+
+### Post-MVP: Multi-Tenancy Migration Strategy
+
+**When to Consider Multi-Tenancy:**
+
+- You have 3+ merchants requesting to use the system
+- Per-merchant deployment costs become prohibitive
+- Merchants request white-label or branded solutions
+- Business model validated with paying customers
+
+**Migration Option 1: Per-Merchant Deployments (Recommended First Step)**
+
+Deploy separate instances for each merchant:
+
+- Merchant A: `merchant-a.invoiceiq.com` with their WABA credentials in .env
+- Merchant B: `merchant-b.invoiceiq.com` with their WABA credentials in .env
+- Easiest scaling path, minimal code changes
+- Higher infrastructure cost but isolated failures
+- Best for 3-10 merchants
+
+**Migration Option 2: Shared WhatsApp Number (Quick Multi-Tenant)**
+
+Use one WhatsApp number for all merchants:
+
+- Add `merchants` table: `id, business_name, identifier_code, owner_email`
+- Add `merchant_id` foreign key to `invoices` table
+- Include merchant identifier in messages: "Invoice from [BusinessName]: ..."
+- Authenticate merchants via simple API key or JWT
+- Pros: Fast implementation, low infrastructure cost
+- Cons: Less professional, all messages from one number
+
+**Migration Option 3: Full Multi-Tenant SaaS (Long-term Goal)**
+
+Database Schema Changes:
+
+```sql
+-- Add merchants table
+CREATE TABLE merchants (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    business_name VARCHAR(100) NOT NULL,
+    waba_phone_id VARCHAR(50) NOT NULL,
+    waba_token_encrypted TEXT NOT NULL,  -- Encrypt at rest
+    waba_verify_token VARCHAR(100),
+    owner_email VARCHAR(255) UNIQUE NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    subscription_tier VARCHAR(20),  -- FREE, BASIC, PRO
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Add merchant_id to existing tables
+ALTER TABLE invoices ADD COLUMN merchant_id UUID REFERENCES merchants(id);
+ALTER TABLE payments ADD COLUMN merchant_id UUID REFERENCES merchants(id);
+ALTER TABLE message_log ADD COLUMN merchant_id UUID REFERENCES merchants(id);
+
+-- Add merchant users for multi-user access
+CREATE TABLE merchant_users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    merchant_id UUID REFERENCES merchants(id),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role VARCHAR(20),  -- OWNER, ADMIN, STAFF
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+Application Changes Required:
+
+1. **Authentication System**: Add JWT-based auth for merchant users
+2. **Merchant Context Middleware**: Extract merchant_id from auth token, inject into requests
+3. **Credential Management**:
+   - Encrypt WhatsApp tokens at rest
+   - Load merchant-specific credentials per request
+   - Support credential rotation
+4. **Webhook Routing**: Route incoming webhooks to correct merchant based on phone number
+5. **Multi-Merchant Admin Panel**:
+   - Merchant registration/onboarding
+   - Credential management UI
+   - Invoice/payment dashboard per merchant
+6. **Billing System**: Track usage, implement subscription tiers
+
+Code Refactoring Needed:
+
+```python
+# Before (MVP - single tenant)
+waba_token = config.WABA_TOKEN
+
+# After (Multi-tenant)
+async def get_merchant_credentials(merchant_id: UUID) -> MerchantCredentials:
+    merchant = await db.query(Merchant).filter(Merchant.id == merchant_id).first()
+    return MerchantCredentials(
+        waba_token=decrypt(merchant.waba_token_encrypted),
+        waba_phone_id=merchant.waba_phone_id
+    )
+```
+
+Estimated Development Time: 2-3 weeks for full multi-tenant refactor
+
+**Recommended Path:**
+
+1. Complete MVP and validate with 1 merchant (Phases 1-16)
+2. Scale to 2-5 merchants using per-merchant deployments
+3. If traction continues, build full multi-tenant SaaS
+4. Add admin panel, billing, and subscription management
 
 ---
 
