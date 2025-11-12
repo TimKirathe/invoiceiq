@@ -35,6 +35,11 @@ class InvoiceCreate(BaseModel):
         max_length=60,
         examples=["John Doe"],
     )
+    merchant_msisdn: str = Field(
+        ...,
+        description="Merchant phone number in E.164 format without + (2547XXXXXXXX)",
+        examples=["254712345678"],
+    )
     amount_cents: int = Field(
         ...,
         description="Invoice amount in cents (minimum 100 = 1 KES)",
@@ -49,7 +54,7 @@ class InvoiceCreate(BaseModel):
         examples=["Payment for services rendered"],
     )
 
-    @field_validator("msisdn")
+    @field_validator("msisdn", "merchant_msisdn")
     @classmethod
     def validate_msisdn_format(cls, v: str) -> str:
         """Validate MSISDN using phone.py utility."""

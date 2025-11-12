@@ -748,3 +748,210 @@ class WhatsAppService:
                 exc_info=True,
             )
             return False
+
+    async def send_receipt_to_customer(
+        self,
+        customer_msisdn: str,
+        invoice_id: str,
+        amount_kes: float,
+        mpesa_receipt: str,
+        db_session: Any,
+    ) -> bool:
+        """
+        Send payment receipt to customer via WhatsApp.
+
+        Formats and sends a receipt confirmation message to the customer after
+        successful payment. Message is kept to 2 lines per CLAUDE.md standards.
+
+        Args:
+            customer_msisdn: Customer's phone number (MSISDN)
+            invoice_id: The invoice ID
+            amount_kes: Payment amount in KES (float)
+            mpesa_receipt: M-PESA receipt number
+            db_session: Database session for logging
+
+        Returns:
+            True if message sent successfully, False otherwise
+        """
+        # Import here to avoid circular dependency
+        from ..models import MessageLog
+
+        # Format receipt message (keep ≤ 2 lines as per CLAUDE.md)
+        message_text = (
+            f"✓ Payment received! Receipt: {mpesa_receipt}\n"
+            f"Invoice {invoice_id} | KES {amount_kes:.2f} | Thank you!"
+        )
+
+        try:
+            await self.send_message(customer_msisdn, message_text)
+
+            logger.info(
+                "Receipt sent to customer successfully",
+                extra={
+                    "invoice_id": invoice_id,
+                    "customer_msisdn": customer_msisdn,
+                    "mpesa_receipt": mpesa_receipt,
+                },
+            )
+
+            # Create MessageLog entry
+            message_log = MessageLog(
+                invoice_id=invoice_id,
+                channel="WHATSAPP",
+                direction="OUT",
+                event="receipt_sent_customer",
+                payload={
+                    "customer_msisdn": customer_msisdn,
+                    "amount_kes": amount_kes,
+                    "mpesa_receipt": mpesa_receipt,
+                    "message": message_text,
+                },
+            )
+            db_session.add(message_log)
+            await db_session.commit()
+
+            logger.info(
+                "MessageLog created for customer receipt",
+                extra={"invoice_id": invoice_id, "message_log_id": message_log.id},
+            )
+
+            return True
+
+        except Exception as e:
+            logger.error(
+                "Failed to send receipt to customer",
+                extra={
+                    "invoice_id": invoice_id,
+                    "customer_msisdn": customer_msisdn,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            # Create MessageLog entry for failure
+            try:
+                message_log = MessageLog(
+                    invoice_id=invoice_id,
+                    channel="WHATSAPP",
+                    direction="OUT",
+                    event="receipt_send_failed_customer",
+                    payload={
+                        "customer_msisdn": customer_msisdn,
+                        "amount_kes": amount_kes,
+                        "mpesa_receipt": mpesa_receipt,
+                        "error": str(e),
+                    },
+                )
+                db_session.add(message_log)
+                await db_session.commit()
+            except Exception as log_error:
+                logger.error(
+                    "Failed to create MessageLog for failed customer receipt",
+                    extra={"error": str(log_error)},
+                )
+            return False
+
+    async def send_receipt_to_merchant(
+        self,
+        merchant_msisdn: str,
+        invoice_id: str,
+        customer_msisdn: str,
+        amount_kes: float,
+        mpesa_receipt: str,
+        db_session: Any,
+    ) -> bool:
+        """
+        Send payment receipt to merchant via WhatsApp.
+
+        Formats and sends a receipt confirmation message to the merchant after
+        successful payment. Message is kept to 2 lines per CLAUDE.md standards.
+
+        Args:
+            merchant_msisdn: Merchant's phone number (MSISDN)
+            invoice_id: The invoice ID
+            customer_msisdn: Customer's phone number
+            amount_kes: Payment amount in KES (float)
+            mpesa_receipt: M-PESA receipt number
+            db_session: Database session for logging
+
+        Returns:
+            True if message sent successfully, False otherwise
+        """
+        # Import here to avoid circular dependency
+        from ..models import MessageLog
+
+        # Format receipt message (keep ≤ 2 lines as per CLAUDE.md)
+        message_text = (
+            f"✓ Payment received! Receipt: {mpesa_receipt}\n"
+            f"Invoice {invoice_id} | {customer_msisdn} paid KES {amount_kes:.2f}"
+        )
+
+        try:
+            await self.send_message(merchant_msisdn, message_text)
+
+            logger.info(
+                "Receipt sent to merchant successfully",
+                extra={
+                    "invoice_id": invoice_id,
+                    "merchant_msisdn": merchant_msisdn,
+                    "customer_msisdn": customer_msisdn,
+                    "mpesa_receipt": mpesa_receipt,
+                },
+            )
+
+            # Create MessageLog entry
+            message_log = MessageLog(
+                invoice_id=invoice_id,
+                channel="WHATSAPP",
+                direction="OUT",
+                event="receipt_sent_merchant",
+                payload={
+                    "merchant_msisdn": merchant_msisdn,
+                    "customer_msisdn": customer_msisdn,
+                    "amount_kes": amount_kes,
+                    "mpesa_receipt": mpesa_receipt,
+                    "message": message_text,
+                },
+            )
+            db_session.add(message_log)
+            await db_session.commit()
+
+            logger.info(
+                "MessageLog created for merchant receipt",
+                extra={"invoice_id": invoice_id, "message_log_id": message_log.id},
+            )
+
+            return True
+
+        except Exception as e:
+            logger.error(
+                "Failed to send receipt to merchant",
+                extra={
+                    "invoice_id": invoice_id,
+                    "merchant_msisdn": merchant_msisdn,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            # Create MessageLog entry for failure
+            try:
+                message_log = MessageLog(
+                    invoice_id=invoice_id,
+                    channel="WHATSAPP",
+                    direction="OUT",
+                    event="receipt_send_failed_merchant",
+                    payload={
+                        "merchant_msisdn": merchant_msisdn,
+                        "customer_msisdn": customer_msisdn,
+                        "amount_kes": amount_kes,
+                        "mpesa_receipt": mpesa_receipt,
+                        "error": str(e),
+                    },
+                )
+                db_session.add(message_log)
+                await db_session.commit()
+            except Exception as log_error:
+                logger.error(
+                    "Failed to create MessageLog for failed merchant receipt",
+                    extra={"error": str(log_error)},
+                )
+            return False

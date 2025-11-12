@@ -174,18 +174,18 @@ See Phase 16 for detailed multi-tenancy migration strategy and database schema c
 
 ## Phase 8: M-PESA Callback Handling & Payment Completion (Day 4)
 
-- [ ] Create src/app/services/idempotency.py with idempotency key generation and validation functions
-- [ ] Implement POST /payments/stk/callback endpoint in payments.py router
-- [ ] Add callback payload parsing (extract ResultCode, MerchantRequestID, CheckoutRequestID, M-PESA receipt)
-- [ ] Update Payment record with callback data (store in raw_callback, update status based on ResultCode)
-- [ ] Update Invoice status to PAID if payment SUCCESS, or FAILED if payment failed
-- [ ] Implement send_receipt_to_customer function in whatsapp.py (formats receipt message with invoice details and M-PESA receipt number)
-- [ ] Implement send_receipt_to_merchant function (notifies merchant of successful payment)
-- [ ] Add message_log entries for receipt messages
-- [ ] Handle callback validation (check signature or IP whitelist if required by M-PESA)
-- [ ] Add idempotency check for callback (prevent duplicate processing of same callback)
-- [ ] Write integration test for full payment flow in tests/integration/test_payment_flow.py (invoice creation � STK � callback � receipts)
-- [ ] Test callback with various ResultCodes (0 for success, non-zero for failures)
+- [x] Create src/app/services/idempotency.py with idempotency key generation and validation functions
+- [x] Implement POST /payments/stk/callback endpoint in payments.py router
+- [x] Add callback payload parsing (extract ResultCode, MerchantRequestID, CheckoutRequestID, M-PESA receipt)
+- [x] Update Payment record with callback data (store in raw_callback, update status based on ResultCode)
+- [x] Update Invoice status to PAID if payment SUCCESS, or FAILED if payment failed
+- [x] Implement send_receipt_to_customer function in whatsapp.py (formats receipt message with invoice details and M-PESA receipt number)
+- [x] Implement send_receipt_to_merchant function (notifies merchant of successful payment)
+- [x] Add message_log entries for receipt messages
+- [x] Handle callback validation (check signature or IP whitelist if required by M-PESA)
+- [x] Add idempotency check for callback (prevent duplicate processing of same callback)
+- [x] Write integration test for full payment flow in tests/integration/test_payment_flow.py (invoice creation � STK � callback � receipts)
+- [x] Test callback with various ResultCodes (0 for success, non-zero for failures)
 
 **Sub-agent Usage:** Use **toby** to get M-PESA callback payload structure and ResultCode meanings.
 

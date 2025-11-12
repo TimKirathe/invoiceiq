@@ -41,6 +41,11 @@ class Invoice(Base):
         String(12), nullable=False
     )  # E.164 format: 2547XXXXXXXX
 
+    # Merchant information
+    merchant_msisdn: Mapped[str] = mapped_column(
+        String(12), nullable=False
+    )  # Merchant's phone number (E.164 format)
+
     # Invoice details
     amount_cents: Mapped[int] = mapped_column(nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="KES")
@@ -127,6 +132,10 @@ class Payment(Base):
 
     # Idempotency
     idempotency_key: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+
+    # M-PESA identifiers for callback matching
+    checkout_request_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    merchant_request_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
