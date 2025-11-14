@@ -214,3 +214,4 @@ africas-talking-documentation-pages
 .env.test
 context-for-agents/
 data.db
+test_sms.db
