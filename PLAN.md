@@ -195,17 +195,17 @@ See Phase 16 for detailed multi-tenancy migration strategy and database schema c
 
 ## Phase 9: SMS Fallback Integration (Day 5)
 
-- [ ] Create src/app/services/sms.py with SMSService class (choose provider: Africa's Talking or Twilio)
-- [ ] Implement send_sms function with provider API integration
-- [ ] Add SMS message formatting for invoice notification (include amount, invoice ID, payment link or shortcode)
-- [ ] Create src/app/routers/sms.py with APIRouter setup
-- [ ] Implement POST /sms/inbound endpoint for receiving SMS replies from customers
-- [ ] Implement POST /sms/status endpoint for delivery receipt callbacks
-- [ ] Add fallback logic in send_invoice_to_customer: try WhatsApp first, if fails then send SMS
-- [ ] Update message_log to record SMS channel for fallback messages
-- [ ] Add basic SMS command parsing for customer replies (e.g., "PAY" keyword for future use)
-- [ ] Write integration test for SMS fallback in tests/integration/test_sms_fallback.py
-- [ ] Test with SMS provider sandbox or mock API
+- [x] Create src/app/services/sms.py with SMSService class (choose provider: Africa's Talking or Twilio)
+- [x] Implement send_sms function with provider API integration
+- [x] Add SMS message formatting for invoice notification (include amount, invoice ID, payment link or shortcode)
+- [x] Create src/app/routers/sms.py with APIRouter setup
+- [x] Implement POST /sms/inbound endpoint for receiving SMS replies from customers
+- [x] Implement POST /sms/status endpoint for delivery receipt callbacks
+- [x] Add fallback logic in send_invoice_to_customer: try WhatsApp first, if fails then send SMS
+- [x] Update message_log to record SMS channel for fallback messages
+- [x] Add basic SMS command parsing for customer replies (e.g., "PAY" keyword for future use)
+- [x] Write integration test for SMS fallback in tests/integration/test_sms_fallback.py
+- [x] Test with SMS provider sandbox or mock API
 
 **Sub-agent Usage:** Use **toby** to fetch Africa's Talking or Twilio SMS API documentation.
 
