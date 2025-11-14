@@ -221,15 +221,15 @@ See Phase 16 for detailed multi-tenancy migration strategy and database schema c
 - [x] Update all SMS sends to create message_log entries with metadata only (NO message content)
 - [x] Store only: message_id, status, event_type, timestamp, status_code, error_type
 - [x] DO NOT store: message content, phone numbers, customer names, amounts, full API payloads
-- [ ] Add structured logging for API calls with metadata only (no request/response bodies containing PII)
-- [ ] Create helper function in logging.py for consistent privacy-compliant log formatting
-- [ ] Add error logging with stack traces (ensure no customer PII in error logs)
-- [ ] Implement log correlation IDs (generate UUID per request, include in all related logs)
-- [ ] Add logging for state machine transitions (log state changes, not message content)
-- [ ] Log all payment events: initiate, callback received, status updates (amounts are in invoice, no need to duplicate)
-- [ ] Write queries or scripts to analyze message_log table (delivery rates, channel distribution, performance metrics)
-- [ ] Document data retention policy (how long logs are kept, auto-deletion strategy)
-- [ ] Test log output format and ensure metadata-only approach is followed
+- [x] Add structured logging for API calls with metadata only (no request/response bodies containing PII)
+- [x] Create helper function in logging.py for consistent privacy-compliant log formatting
+- [x] Add error logging with stack traces (ensure no customer PII in error logs)
+- [x] Implement log correlation IDs (generate UUID per request, include in all related logs)
+- [x] Add logging for state machine transitions (log state changes, not message content)
+- [x] Log all payment events: initiate, callback received, status updates (amounts are in invoice, no need to duplicate)
+- [x] Write queries or scripts to analyze message_log table (delivery rates, channel distribution, performance metrics)
+- [x] Document data retention policy (how long logs are kept, auto-deletion strategy)
+- [x] Test log output format and ensure metadata-only approach is followed
 
 **Privacy Benefits:**
 - GDPR/CCPA compliant - minimal PII storage

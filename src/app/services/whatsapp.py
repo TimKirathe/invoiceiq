@@ -55,23 +55,39 @@ class ConversationStateManager:
         return cls.states[user_id]
 
     @classmethod
-    def set_state(cls, user_id: str, state: str, data: Optional[Dict[str, Any]] = None) -> None:
+    def set_state(
+        cls,
+        user_id: str,
+        state: str,
+        data: Optional[Dict[str, Any]] = None,
+        trigger: Optional[str] = None,
+    ) -> None:
         """
-        Set the state for a user.
+        Set the state for a user with transition logging.
 
         Args:
             user_id: The user's phone number (MSISDN)
             state: The new state
             data: Optional data to store with the state
+            trigger: Optional event trigger that caused the state change
         """
         if data is None:
             data = {}
+
+        # Get current state for transition logging
+        current_state_info = cls.states.get(user_id, {"state": cls.STATE_IDLE, "data": {}})
+        from_state = current_state_info["state"]
+
+        # Update state
         cls.states[user_id] = {"state": state, "data": data}
+
+        # Log state transition (privacy-compliant - no PII)
         logger.info(
-            "State updated",
+            "State transition",
             extra={
-                "user_id": user_id,
-                "new_state": state,
+                "from_state": from_state,
+                "to_state": state,
+                "trigger": trigger or "manual",
                 "data_keys": list(data.keys()),
             },
         )

@@ -126,40 +126,127 @@ def get_logger(name: str) -> logging.Logger:
 
 
 def log_api_call(
-    logger: logging.Logger,
     service: str,
     endpoint: str,
-    request_data: dict[str, Any],
-    response_data: dict[str, Any],
+    method: str,
+    status_code: int,
+    duration_ms: float,
+    correlation_id: str | None = None,
+    error_type: str | None = None,
 ) -> None:
     """
-    Log an external API call with structured data.
+    Log API calls with metadata only (no request/response bodies with PII).
 
     Args:
-        logger: The logger instance to use
-        service: Name of the external service (e.g., "WhatsApp", "M-PESA")
-        endpoint: The API endpoint being called
-        request_data: The request payload or parameters
-        response_data: The response data received
+        service: API service name (e.g., "whatsapp", "sms", "mpesa")
+        endpoint: API endpoint path
+        method: HTTP method (GET, POST, etc.)
+        status_code: HTTP response status code
+        duration_ms: Request duration in milliseconds
+        correlation_id: Request correlation ID for tracing
+        error_type: Exception type if error occurred
 
     Example:
-        >>> logger = get_logger(__name__)
         >>> log_api_call(
-        ...     logger,
-        ...     service="M-PESA",
-        ...     endpoint="/v1/stkpush",
-        ...     request_data={"phone": "254712345678", "amount": 100},
-        ...     response_data={"status": "success", "checkout_id": "ws_CO_123"}
+        ...     service="mpesa",
+        ...     endpoint="/oauth/v1/generate",
+        ...     method="GET",
+        ...     status_code=200,
+        ...     duration_ms=245.5,
+        ...     correlation_id="abc-123"
         ... )
     """
+    logger = get_logger(__name__)
+    extra_data = {
+        "service": service,
+        "endpoint": endpoint,
+        "method": method,
+        "status_code": status_code,
+        "duration_ms": duration_ms,
+    }
+
+    if correlation_id:
+        extra_data["correlation_id"] = correlation_id
+
+    if error_type:
+        extra_data["error_type"] = error_type
+
     logger.info(
         f"API call to {service}",
-        extra={
-            "service": service,
-            "endpoint": endpoint,
-            "request_data": request_data,
-            "response_data": response_data,
-        },
+        extra=extra_data,
+    )
+
+
+def log_event(
+    event: str,
+    level: str = "INFO",
+    correlation_id: str | None = None,
+    **metadata: Any,
+) -> None:
+    """
+    Log an event with privacy-compliant metadata.
+
+    Automatically filters out common PII fields (phone, msisdn, customer_name, etc.)
+
+    Args:
+        event: Event description
+        level: Log level (DEBUG, INFO, WARNING, ERROR)
+        correlation_id: Request correlation ID
+        **metadata: Additional metadata (PII fields will be filtered)
+
+    Example:
+        >>> log_event(
+        ...     "Invoice created",
+        ...     level="INFO",
+        ...     correlation_id="abc-123",
+        ...     invoice_id="INV-001",
+        ...     status="PENDING"
+        ... )
+    """
+    # PII fields to filter
+    pii_fields = {
+        "phone",
+        "msisdn",
+        "phone_number",
+        "customer_phone",
+        "merchant_phone",
+        "customer_name",
+        "name",
+        "full_name",
+        "message",
+        "message_text",
+        "sms_text",
+        "body",
+        "email",
+        "address",
+    }
+
+    # Also filter fields containing these substrings
+    sensitive_substrings = {"password", "token", "secret", "key", "credential"}
+
+    # Filter metadata
+    filtered_metadata = {}
+    for key, value in metadata.items():
+        # Check if key is in PII fields
+        if key.lower() in pii_fields:
+            continue
+        # Check if key contains sensitive substrings
+        if any(substring in key.lower() for substring in sensitive_substrings):
+            continue
+        filtered_metadata[key] = value
+
+    # Add correlation ID if present
+    if correlation_id:
+        filtered_metadata["correlation_id"] = correlation_id
+
+    # Get logger and log at appropriate level
+    logger = get_logger(__name__)
+    log_level = getattr(logging, level.upper(), logging.INFO)
+
+    logger.log(
+        log_level,
+        event,
+        extra=filtered_metadata,
     )
 
 

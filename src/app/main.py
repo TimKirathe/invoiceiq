@@ -6,6 +6,7 @@ sets up health check endpoints, and registers API routers.
 """
 
 import time
+import uuid
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -69,11 +70,41 @@ app.add_middleware(
 
 
 @app.middleware("http")
+async def add_correlation_id(request: Request, call_next) -> Response:
+    """
+    Correlation ID middleware.
+
+    Generates a unique correlation ID for each request to enable request tracing
+    across logs. The correlation ID is stored in request state and added to
+    response headers.
+
+    Args:
+        request: The incoming HTTP request
+        call_next: The next middleware or route handler
+
+    Returns:
+        The HTTP response with X-Correlation-ID header
+    """
+    # Generate or extract correlation ID
+    correlation_id = request.headers.get("X-Correlation-ID", str(uuid.uuid4()))
+    request.state.correlation_id = correlation_id
+
+    # Process request
+    response = await call_next(request)
+
+    # Add correlation ID to response headers for client tracking
+    response.headers["X-Correlation-ID"] = correlation_id
+
+    return response
+
+
+@app.middleware("http")
 async def log_requests(request: Request, call_next) -> Response:
     """
     Request logging middleware.
 
     Logs all incoming HTTP requests with method, path, and processing time.
+    Includes correlation ID for request tracing.
 
     Args:
         request: The incoming HTTP request
@@ -83,6 +114,7 @@ async def log_requests(request: Request, call_next) -> Response:
         The HTTP response
     """
     start_time = time.time()
+    correlation_id = getattr(request.state, "correlation_id", None)
 
     # Log incoming request
     logger.info(
@@ -91,6 +123,7 @@ async def log_requests(request: Request, call_next) -> Response:
             "method": request.method,
             "path": request.url.path,
             "query_params": str(request.query_params),
+            "correlation_id": correlation_id,
         },
     )
 
@@ -108,6 +141,7 @@ async def log_requests(request: Request, call_next) -> Response:
             "path": request.url.path,
             "status_code": response.status_code,
             "process_time": f"{process_time:.4f}s",
+            "correlation_id": correlation_id,
         },
     )
 
