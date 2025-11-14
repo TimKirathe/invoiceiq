@@ -15,7 +15,7 @@ from sqlalchemy import text
 
 from .config import settings
 from .db import create_tables, engine, get_db
-from .routers import invoices, payments, whatsapp
+from .routers import invoices, payments, sms, whatsapp
 from .utils.logging import get_logger, setup_logging
 
 # Set up structured logging
@@ -170,6 +170,7 @@ async def readiness_check() -> dict[str, str]:
 
 # Register routers
 app.include_router(whatsapp.router, prefix="/whatsapp", tags=["whatsapp"])
+app.include_router(sms.router, prefix="/sms", tags=["sms"])
 app.include_router(invoices.router, prefix="/invoices", tags=["invoices"])
 app.include_router(payments.router, prefix="/payments", tags=["payments"])
 
