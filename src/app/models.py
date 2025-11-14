@@ -171,7 +171,10 @@ class MessageLog(Base):
     """
     Message log model for audit trail of WhatsApp/SMS communications.
 
-    Records all inbound and outbound messages for debugging and compliance.
+    PRIVACY-FIRST: Only metadata is stored (message IDs, delivery status,
+    timestamps, event types). Message content is NOT stored to comply with
+    GDPR and data minimization principles.
+
     Links to invoice when message is related to a specific invoice.
     """
 

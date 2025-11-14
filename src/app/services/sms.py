@@ -5,6 +5,7 @@ This module provides the SMSService class for sending SMS messages via
 Africa's Talking, with fallback support when WhatsApp delivery fails.
 """
 
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 import httpx
@@ -251,7 +252,7 @@ class SMSService:
 
         try:
             # Send SMS
-            result = await self.send_sms(to=customer_msisdn, message=message)
+            await self.send_sms(to=customer_msisdn, message=message)
 
             logger.info(
                 "Invoice sent to customer via SMS",
@@ -262,20 +263,15 @@ class SMSService:
                 },
             )
 
-            # Create MessageLog entry
+            # Create MessageLog entry (metadata only - privacy-first)
             message_log = MessageLog(
                 invoice_id=invoice_id,
                 channel="SMS",
                 direction="OUT",
                 event="invoice_sent",
                 payload={
-                    "request": {
-                        "to": customer_msisdn,
-                        "message": message,
-                    },
-                    "response": result.get("response"),
-                    "customer_msisdn": customer_msisdn,
-                    "amount_cents": amount_cents,
+                    "status": "sent",
+                    "timestamp": datetime.utcnow().isoformat(),
                 },
             )
             db_session.add(message_log)
@@ -299,7 +295,7 @@ class SMSService:
                 exc_info=True,
             )
 
-            # Create MessageLog entry for failure
+            # Create MessageLog entry for failure (metadata only - privacy-first)
             try:
                 message_log = MessageLog(
                     invoice_id=invoice_id,
@@ -307,12 +303,9 @@ class SMSService:
                     direction="OUT",
                     event="invoice_send_failed",
                     payload={
-                        "request": {
-                            "to": customer_msisdn,
-                            "message": message,
-                        },
-                        "error": str(e),
+                        "status": "failed",
                         "error_type": type(e).__name__,
+                        "timestamp": datetime.utcnow().isoformat(),
                     },
                 )
                 db_session.add(message_log)

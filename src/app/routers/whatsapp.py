@@ -6,6 +6,7 @@ processing. It implements the GET endpoint for webhook verification and POST
 endpoint for receiving messages and interactive button responses.
 """
 
+from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -174,7 +175,7 @@ async def receive_webhook(
                     f"STK Push will be implemented in Phase 7."
                 )
 
-                # Create MessageLog entry for button click
+                # Create MessageLog entry for button click (metadata only - privacy-first)
                 try:
                     button_click_log = MessageLog(
                         invoice_id=invoice_id,
@@ -182,9 +183,9 @@ async def receive_webhook(
                         direction="IN",
                         event="payment_button_clicked",
                         payload={
-                            "sender": sender,
                             "button_id": message_text,
                             "invoice_id": invoice_id,
+                            "timestamp": datetime.utcnow().isoformat(),
                         },
                     )
                     db.add(button_click_log)
@@ -387,13 +388,29 @@ async def receive_webhook(
                 )
 
     try:
-        # Create MessageLog entry
+        # Create MessageLog entry (metadata only - privacy-first)
+        # Extract minimal metadata from payload
+        try:
+            entry = payload.get("entry", [{}])[0]
+            changes = entry.get("changes", [{}])[0]
+            value = changes.get("value", {})
+            messages = value.get("messages", [{}])
+            event_type = "message" if messages else "status_update"
+            message_id = messages[0].get("id") if messages else None
+        except (IndexError, KeyError, TypeError):
+            event_type = "unknown"
+            message_id = None
+
         message_log = MessageLog(
             invoice_id=None,  # No invoice context yet
             channel="WHATSAPP",
             direction="IN",
             event="webhook_received",
-            payload=payload,
+            payload={
+                "event_type": event_type,
+                "message_id": message_id,
+                "timestamp": datetime.utcnow().isoformat(),
+            },
         )
 
         db.add(message_log)

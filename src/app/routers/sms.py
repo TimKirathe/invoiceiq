@@ -5,6 +5,7 @@ This module handles SMS callbacks from Africa's Talking API, including
 inbound SMS messages and delivery receipt callbacks.
 """
 
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -140,7 +141,7 @@ async def receive_inbound_sms(
             )
             # TODO: Send error response in future phase
 
-        # Create MessageLog entry for inbound SMS
+        # Create MessageLog entry for inbound SMS (metadata only - privacy-first)
         try:
             message_log = MessageLog(
                 invoice_id=None,  # No invoice context yet
@@ -148,12 +149,9 @@ async def receive_inbound_sms(
                 direction="IN",
                 event="sms_received",
                 payload={
-                    "from": sender,
-                    "text": message_text,
                     "message_id": message_id,
                     "command": command,
-                    "params": params,
-                    "raw_payload": payload,
+                    "timestamp": datetime.utcnow().isoformat(),
                 },
             )
             db.add(message_log)
@@ -233,7 +231,7 @@ async def receive_delivery_status(
             },
         )
 
-        # Create MessageLog entry for delivery status
+        # Create MessageLog entry for delivery status (metadata only - privacy-first)
         try:
             message_log = MessageLog(
                 invoice_id=None,  # No invoice context (could be linked in future)
@@ -243,9 +241,7 @@ async def receive_delivery_status(
                 payload={
                     "message_id": message_id,
                     "status": status,
-                    "phone_number": phone_number,
-                    "retry_count": parsed_receipt["retry_count"],
-                    "raw_payload": payload,
+                    "timestamp": datetime.utcnow().isoformat(),
                 },
             )
             db.add(message_log)

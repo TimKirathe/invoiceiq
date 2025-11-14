@@ -7,6 +7,7 @@ and message sending functionality.
 """
 
 import re
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 import httpx
@@ -582,17 +583,17 @@ class WhatsAppService:
                     },
                 )
 
-                # Create MessageLog entry
+                # Create MessageLog entry (metadata only - privacy-first)
                 message_log = MessageLog(
                     invoice_id=invoice_id,
                     channel="WHATSAPP",
                     direction="OUT",
                     event="invoice_sent",
                     payload={
-                        "request": payload,
-                        "response": response_data,
-                        "customer_msisdn": customer_msisdn,
-                        "amount_cents": amount_cents,
+                        "message_id": response_data.get("messages", [{}])[0].get("id"),
+                        "status": "sent",
+                        "status_code": response.status_code,
+                        "timestamp": datetime.utcnow().isoformat(),
                     },
                 )
                 db_session.add(message_log)
@@ -616,7 +617,7 @@ class WhatsAppService:
                 },
                 exc_info=True,
             )
-            # Create MessageLog entry for failure
+            # Create MessageLog entry for failure (metadata only - privacy-first)
             try:
                 message_log = MessageLog(
                     invoice_id=invoice_id,
@@ -624,9 +625,10 @@ class WhatsAppService:
                     direction="OUT",
                     event="invoice_send_failed",
                     payload={
-                        "request": payload,
-                        "error": e.response.text,
+                        "status": "failed",
                         "status_code": e.response.status_code,
+                        "error_type": "http_error",
+                        "timestamp": datetime.utcnow().isoformat(),
                     },
                 )
                 db_session.add(message_log)
@@ -644,7 +646,7 @@ class WhatsAppService:
                 extra={"invoice_id": invoice_id, "error": str(e)},
                 exc_info=True,
             )
-            # Create MessageLog entry for failure
+            # Create MessageLog entry for failure (metadata only - privacy-first)
             try:
                 message_log = MessageLog(
                     invoice_id=invoice_id,
@@ -652,9 +654,9 @@ class WhatsAppService:
                     direction="OUT",
                     event="invoice_send_failed",
                     payload={
-                        "request": payload,
-                        "error": str(e),
+                        "status": "failed",
                         "error_type": "network_error",
+                        "timestamp": datetime.utcnow().isoformat(),
                     },
                 )
                 db_session.add(message_log)
@@ -686,7 +688,7 @@ class WhatsAppService:
                 extra={"invoice_id": invoice_id, "error": str(e)},
                 exc_info=True,
             )
-            # Create MessageLog entry for failure
+            # Create MessageLog entry for failure (metadata only - privacy-first)
             try:
                 message_log = MessageLog(
                     invoice_id=invoice_id,
@@ -694,9 +696,9 @@ class WhatsAppService:
                     direction="OUT",
                     event="invoice_send_failed",
                     payload={
-                        "request": payload,
-                        "error": str(e),
+                        "status": "failed",
                         "error_type": "unexpected_error",
+                        "timestamp": datetime.utcnow().isoformat(),
                     },
                 )
                 db_session.add(message_log)
@@ -822,17 +824,15 @@ class WhatsAppService:
                 },
             )
 
-            # Create MessageLog entry
+            # Create MessageLog entry (metadata only - privacy-first)
             message_log = MessageLog(
                 invoice_id=invoice_id,
                 channel="WHATSAPP",
                 direction="OUT",
                 event="receipt_sent_customer",
                 payload={
-                    "customer_msisdn": customer_msisdn,
-                    "amount_kes": amount_kes,
-                    "mpesa_receipt": mpesa_receipt,
-                    "message": message_text,
+                    "status": "sent",
+                    "timestamp": datetime.utcnow().isoformat(),
                 },
             )
             db_session.add(message_log)
@@ -855,7 +855,7 @@ class WhatsAppService:
                 },
                 exc_info=True,
             )
-            # Create MessageLog entry for failure
+            # Create MessageLog entry for failure (metadata only - privacy-first)
             try:
                 message_log = MessageLog(
                     invoice_id=invoice_id,
@@ -863,10 +863,9 @@ class WhatsAppService:
                     direction="OUT",
                     event="receipt_send_failed_customer",
                     payload={
-                        "customer_msisdn": customer_msisdn,
-                        "amount_kes": amount_kes,
-                        "mpesa_receipt": mpesa_receipt,
-                        "error": str(e),
+                        "status": "failed",
+                        "error_type": type(e).__name__,
+                        "timestamp": datetime.utcnow().isoformat(),
                     },
                 )
                 db_session.add(message_log)
@@ -926,18 +925,15 @@ class WhatsAppService:
                 },
             )
 
-            # Create MessageLog entry
+            # Create MessageLog entry (metadata only - privacy-first)
             message_log = MessageLog(
                 invoice_id=invoice_id,
                 channel="WHATSAPP",
                 direction="OUT",
                 event="receipt_sent_merchant",
                 payload={
-                    "merchant_msisdn": merchant_msisdn,
-                    "customer_msisdn": customer_msisdn,
-                    "amount_kes": amount_kes,
-                    "mpesa_receipt": mpesa_receipt,
-                    "message": message_text,
+                    "status": "sent",
+                    "timestamp": datetime.utcnow().isoformat(),
                 },
             )
             db_session.add(message_log)
@@ -960,7 +956,7 @@ class WhatsAppService:
                 },
                 exc_info=True,
             )
-            # Create MessageLog entry for failure
+            # Create MessageLog entry for failure (metadata only - privacy-first)
             try:
                 message_log = MessageLog(
                     invoice_id=invoice_id,
@@ -968,11 +964,9 @@ class WhatsAppService:
                     direction="OUT",
                     event="receipt_send_failed_merchant",
                     payload={
-                        "merchant_msisdn": merchant_msisdn,
-                        "customer_msisdn": customer_msisdn,
-                        "amount_kes": amount_kes,
-                        "mpesa_receipt": mpesa_receipt,
-                        "error": str(e),
+                        "status": "failed",
+                        "error_type": type(e).__name__,
+                        "timestamp": datetime.utcnow().isoformat(),
                     },
                 )
                 db_session.add(message_log)
@@ -1069,7 +1063,7 @@ class WhatsAppService:
                 exc_info=True,
             )
 
-            # Create MessageLog entry for SMS fallback failure
+            # Create MessageLog entry for SMS fallback failure (metadata only - privacy-first)
             try:
                 message_log = MessageLog(
                     invoice_id=invoice_id,
@@ -1077,9 +1071,9 @@ class WhatsAppService:
                     direction="OUT",
                     event="sms_fallback_failed",
                     payload={
-                        "customer_msisdn": customer_msisdn,
-                        "whatsapp_error": whatsapp_error,
-                        "sms_error": str(e),
+                        "status": "failed",
+                        "error_type": type(e).__name__,
+                        "timestamp": datetime.utcnow().isoformat(),
                     },
                 )
                 db_session.add(message_log)

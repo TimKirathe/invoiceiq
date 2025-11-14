@@ -213,20 +213,31 @@ See Phase 16 for detailed multi-tenancy migration strategy and database schema c
 
 ---
 
-## Phase 10: Enhanced Logging & Message Audit Trail (Day 6)
+## Phase 10: Privacy-First Logging & Audit Trail (Day 6)
 
-- [ ] Update all WhatsApp message sends to create message_log entries with full payload
-- [ ] Update all SMS sends to create message_log entries
-- [ ] Add structured logging for all API calls (WhatsApp, SMS, M-PESA) with request/response details
-- [ ] Create helper function in logging.py for consistent log formatting (include timestamp, level, service, event, metadata)
-- [ ] Add error logging with stack traces for all exception handlers
+**Privacy Philosophy:** Store only operational metadata, NOT customer PII. This minimizes GDPR/data protection risks while maintaining debugging and monitoring capabilities.
+
+- [x] Update all WhatsApp message sends to create message_log entries with metadata only (NO message content)
+- [x] Update all SMS sends to create message_log entries with metadata only (NO message content)
+- [x] Store only: message_id, status, event_type, timestamp, status_code, error_type
+- [x] DO NOT store: message content, phone numbers, customer names, amounts, full API payloads
+- [ ] Add structured logging for API calls with metadata only (no request/response bodies containing PII)
+- [ ] Create helper function in logging.py for consistent privacy-compliant log formatting
+- [ ] Add error logging with stack traces (ensure no customer PII in error logs)
 - [ ] Implement log correlation IDs (generate UUID per request, include in all related logs)
-- [ ] Add logging for state machine transitions (log current state, next state, trigger)
-- [ ] Log all payment events: initiate, callback received, status updates
-- [ ] Write queries or scripts to analyze message_log table (delivery rates, channel distribution)
-- [ ] Test log output format and ensure JSON structure is parseable
+- [ ] Add logging for state machine transitions (log state changes, not message content)
+- [ ] Log all payment events: initiate, callback received, status updates (amounts are in invoice, no need to duplicate)
+- [ ] Write queries or scripts to analyze message_log table (delivery rates, channel distribution, performance metrics)
+- [ ] Document data retention policy (how long logs are kept, auto-deletion strategy)
+- [ ] Test log output format and ensure metadata-only approach is followed
 
-**Testing Checkpoint:** All messages logged to database; logs are structured and queryable; correlation IDs present.
+**Privacy Benefits:**
+- GDPR/CCPA compliant - minimal PII storage
+- Lower liability in case of data breach
+- Simpler compliance requirements
+- Still maintains operational visibility for debugging
+
+**Testing Checkpoint:** All messages logged with metadata only; no PII in logs; logs are structured and queryable; correlation IDs present.
 
 ---
 
