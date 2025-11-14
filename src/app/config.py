@@ -21,9 +21,11 @@ class Settings(BaseSettings):
     waba_phone_id: str
     waba_verify_token: str
 
-    # SMS Provider Configuration
+    # SMS Provider Configuration (Africa's Talking)
     sms_api_key: str
     sms_username: str
+    sms_sender_id: str | None = None  # Optional sender ID/shortcode
+    sms_use_sandbox: bool = True  # Default to sandbox
 
     # M-PESA Configuration
     mpesa_consumer_key: str
