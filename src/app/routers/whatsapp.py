@@ -9,7 +9,7 @@ endpoint for receiving messages and interactive button responses.
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
@@ -33,14 +33,13 @@ class WebhookPayload(BaseModel):
     The actual structure will be validated and parsed in future phases.
     """
 
+    model_config = ConfigDict(
+        extra="allow",  # Allow additional fields not explicitly defined
+    )
+
     # WhatsApp sends complex nested structures, so we accept a dict
     object: Optional[str] = None
     entry: Optional[list[dict[str, Any]]] = None
-
-    class Config:
-        """Pydantic configuration."""
-
-        extra = "allow"  # Allow additional fields not explicitly defined
 
 
 @router.get("/webhook")
