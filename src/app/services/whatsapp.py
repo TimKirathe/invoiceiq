@@ -664,7 +664,21 @@ class WhatsAppService:
                     "Failed to create MessageLog for failed invoice send",
                     extra={"error": str(log_error)},
                 )
-            return False
+
+            # SMS FALLBACK: Try sending via SMS
+            logger.info(
+                "Attempting SMS fallback after WhatsApp network error",
+                extra={"invoice_id": invoice_id, "whatsapp_error": str(e)},
+            )
+            return await self._fallback_to_sms(
+                invoice_id=invoice_id,
+                customer_msisdn=customer_msisdn,
+                customer_name=customer_name,
+                amount_cents=amount_cents,
+                description=description,
+                db_session=db_session,
+                whatsapp_error=str(e),
+            )
 
         except Exception as e:
             logger.error(
@@ -692,7 +706,21 @@ class WhatsAppService:
                     "Failed to create MessageLog for failed invoice send",
                     extra={"error": str(log_error)},
                 )
-            return False
+
+            # SMS FALLBACK: Try sending via SMS
+            logger.info(
+                "Attempting SMS fallback after WhatsApp unexpected error",
+                extra={"invoice_id": invoice_id, "whatsapp_error": str(e)},
+            )
+            return await self._fallback_to_sms(
+                invoice_id=invoice_id,
+                customer_msisdn=customer_msisdn,
+                customer_name=customer_name,
+                amount_cents=amount_cents,
+                description=description,
+                db_session=db_session,
+                whatsapp_error=str(e),
+            )
 
     async def send_merchant_confirmation(
         self,
@@ -954,4 +982,112 @@ class WhatsAppService:
                     "Failed to create MessageLog for failed merchant receipt",
                     extra={"error": str(log_error)},
                 )
+            return False
+
+    async def _fallback_to_sms(
+        self,
+        invoice_id: str,
+        customer_msisdn: str,
+        customer_name: Optional[str],
+        amount_cents: int,
+        description: str,
+        db_session: Any,
+        whatsapp_error: str,
+    ) -> bool:
+        """
+        Fallback to SMS when WhatsApp delivery fails.
+
+        This method is called internally when WhatsApp fails due to network
+        or API errors. It attempts to send the invoice via SMS instead.
+
+        Args:
+            invoice_id: The invoice ID
+            customer_msisdn: Customer's phone number (MSISDN)
+            customer_name: Customer's name (optional)
+            amount_cents: Invoice amount in cents
+            description: Invoice description
+            db_session: Database session for logging
+            whatsapp_error: The WhatsApp error message
+
+        Returns:
+            True if SMS sent successfully, False otherwise
+        """
+        # Import here to avoid circular dependency
+        from ..models import MessageLog
+        from .sms import SMSService
+
+        logger.info(
+            "SMS fallback triggered",
+            extra={
+                "invoice_id": invoice_id,
+                "customer_msisdn": customer_msisdn,
+                "whatsapp_error": whatsapp_error,
+            },
+        )
+
+        try:
+            # Initialize SMS service
+            sms_service = SMSService()
+
+            # Send invoice via SMS
+            success = await sms_service.send_invoice_to_customer(
+                invoice_id=invoice_id,
+                customer_msisdn=customer_msisdn,
+                customer_name=customer_name,
+                amount_cents=amount_cents,
+                description=description,
+                db_session=db_session,
+            )
+
+            if success:
+                logger.info(
+                    "SMS fallback successful",
+                    extra={
+                        "invoice_id": invoice_id,
+                        "customer_msisdn": customer_msisdn,
+                    },
+                )
+            else:
+                logger.error(
+                    "SMS fallback failed",
+                    extra={
+                        "invoice_id": invoice_id,
+                        "customer_msisdn": customer_msisdn,
+                    },
+                )
+
+            return success
+
+        except Exception as e:
+            logger.error(
+                "SMS fallback encountered exception",
+                extra={
+                    "invoice_id": invoice_id,
+                    "customer_msisdn": customer_msisdn,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+
+            # Create MessageLog entry for SMS fallback failure
+            try:
+                message_log = MessageLog(
+                    invoice_id=invoice_id,
+                    channel="SMS",
+                    direction="OUT",
+                    event="sms_fallback_failed",
+                    payload={
+                        "customer_msisdn": customer_msisdn,
+                        "whatsapp_error": whatsapp_error,
+                        "sms_error": str(e),
+                    },
+                )
+                db_session.add(message_log)
+                await db_session.commit()
+            except Exception as log_error:
+                logger.error(
+                    "Failed to create MessageLog for SMS fallback failure",
+                    extra={"error": str(log_error)},
+                )
+
             return False
