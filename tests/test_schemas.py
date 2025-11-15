@@ -13,19 +13,10 @@ import pytest
 from pydantic import ValidationError
 
 from src.app.schemas import (
-    ButtonReply,
-    Change,
-    Contact,
-    Entry,
     InvoiceCreate,
     InvoiceResponse,
-    InteractiveMessage,
-    Message,
-    Metadata,
     PaymentCreate,
     PaymentResponse,
-    TextMessage,
-    Value,
     WhatsAppWebhookEvent,
 )
 
@@ -43,12 +34,14 @@ class TestInvoiceCreate:
         data = {
             "msisdn": "254712345678",
             "customer_name": "John Doe",
+            "merchant_msisdn": "254798765432",
             "amount_cents": 10000,
             "description": "Payment for services",
         }
         invoice = InvoiceCreate(**data)
         assert invoice.msisdn == "254712345678"
         assert invoice.customer_name == "John Doe"
+        assert invoice.merchant_msisdn == "254798765432"
         assert invoice.amount_cents == 10000
         assert invoice.description == "Payment for services"
 
@@ -56,6 +49,7 @@ class TestInvoiceCreate:
         """Test creating an invoice without customer name (optional field)."""
         data = {
             "msisdn": "254712345678",
+            "merchant_msisdn": "254798765432",
             "amount_cents": 5000,
             "description": "Test payment",
         }
@@ -69,6 +63,7 @@ class TestInvoiceCreate:
         data = {
             "msisdn": "254712345678",
             "customer_name": None,
+            "merchant_msisdn": "254798765432",
             "amount_cents": 5000,
             "description": "Test payment",
         }
@@ -94,6 +89,7 @@ class TestInvoiceCreate:
         """Test validation fails for invalid MSISDN formats."""
         data = {
             "msisdn": invalid_msisdn,
+            "merchant_msisdn": "254798765432",
             "amount_cents": 10000,
             "description": "Test payment",
         }
@@ -116,6 +112,7 @@ class TestInvoiceCreate:
         """Test amount validation (minimum 100 cents)."""
         data = {
             "msisdn": "254712345678",
+            "merchant_msisdn": "254798765432",
             "amount_cents": amount,
             "description": "Test payment",
         }
@@ -148,6 +145,7 @@ class TestInvoiceCreate:
         """Test description length validation (3-120 characters)."""
         data = {
             "msisdn": "254712345678",
+            "merchant_msisdn": "254798765432",
             "amount_cents": 10000,
             "description": description,
         }
@@ -175,6 +173,7 @@ class TestInvoiceCreate:
         """Test customer name length validation (2-60 characters if provided)."""
         data = {
             "msisdn": "254712345678",
+            "merchant_msisdn": "254798765432",
             "amount_cents": 10000,
             "description": "Test payment",
             "customer_name": customer_name,
@@ -678,6 +677,7 @@ class TestSchemaIntegration:
         create_data = {
             "msisdn": "254712345678",
             "customer_name": "John Doe",
+            "merchant_msisdn": "254798765432",
             "amount_cents": 10000,
             "description": "Test payment",
         }

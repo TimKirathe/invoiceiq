@@ -118,6 +118,7 @@ async def test_concurrent_invoice_creation(
             invoice_data = {
                 "msisdn": f"25471234567{i}",
                 "customer_name": f"Customer {i}",
+                "merchant_msisdn": "254798765432",
                 "amount_cents": 10000 + (i * 1000),
                 "description": f"Concurrent test invoice {i}",
             }
@@ -381,6 +382,7 @@ async def test_concurrent_mixed_operations(
                 json={
                     "msisdn": f"25470000000{i}",
                     "customer_name": f"Mixed Test {i}",
+                    "merchant_msisdn": "254798765432",
                     "amount_cents": 15000 + (i * 1000),
                     "description": f"Mixed concurrent test {i}",
                 },
@@ -533,6 +535,7 @@ async def test_concurrent_operations_database_integrity(
                     json={
                         "msisdn": f"25472222222{i}",
                         "customer_name": f"New Invoice {i}",
+                        "merchant_msisdn": "254798765432",
                         "amount_cents": 25000 + (i * 500),
                         "description": f"Concurrent integrity invoice {i}",
                     },

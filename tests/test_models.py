@@ -74,6 +74,7 @@ async def test_invoice_creation(async_session: AsyncSession):
         id=str(uuid.uuid4()),
         customer_name="John Doe",
         msisdn="254712345678",
+        merchant_msisdn="254798765432",
         amount_cents=10000,  # 100 KES
         currency="KES",
         description="Test invoice",
@@ -92,6 +93,7 @@ async def test_invoice_creation(async_session: AsyncSession):
     assert retrieved is not None
     assert retrieved.customer_name == "John Doe"
     assert retrieved.msisdn == "254712345678"
+    assert retrieved.merchant_msisdn == "254798765432"
     assert retrieved.amount_cents == 10000
     assert retrieved.status == "PENDING"
 
@@ -101,6 +103,7 @@ async def test_invoice_auto_uuid(async_session: AsyncSession):
     """Test that invoice ID is auto-generated if not provided."""
     invoice = Invoice(
         msisdn="254712345678",
+        merchant_msisdn="254798765432",
         amount_cents=10000,
         description="Test invoice",
         status="PENDING",
@@ -118,6 +121,7 @@ async def test_invoice_timestamps(async_session: AsyncSession):
     """Test that timestamps are auto-populated."""
     invoice = Invoice(
         msisdn="254712345678",
+        merchant_msisdn="254798765432",
         amount_cents=10000,
         description="Test invoice",
         status="PENDING",
@@ -137,6 +141,7 @@ async def test_invoice_nullable_fields(async_session: AsyncSession):
     """Test that optional fields can be null."""
     invoice = Invoice(
         msisdn="254712345678",
+        merchant_msisdn="254798765432",
         amount_cents=10000,
         description="Test invoice",
         status="PENDING",
@@ -172,6 +177,7 @@ async def test_invoice_status_constraint(async_session: AsyncSession):
     """Test that status must be one of the allowed values."""
     invoice = Invoice(
         msisdn="254712345678",
+        merchant_msisdn="254798765432",
         amount_cents=10000,
         description="Test invoice",
         status="INVALID_STATUS",
@@ -189,6 +195,7 @@ async def test_invoice_amount_constraint(async_session: AsyncSession):
     """Test that amount must be at least 100 cents (1 KES)."""
     invoice = Invoice(
         msisdn="254712345678",
+        merchant_msisdn="254798765432",
         amount_cents=50,  # Less than minimum
         description="Test invoice",
         status="PENDING",
@@ -206,6 +213,7 @@ async def test_invoice_msisdn_length_constraint(async_session: AsyncSession):
     """Test that MSISDN must be exactly 12 characters."""
     invoice = Invoice(
         msisdn="12345",  # Too short
+        merchant_msisdn="254798765432",
         amount_cents=10000,
         description="Test invoice",
         status="PENDING",
@@ -223,6 +231,7 @@ async def test_invoice_description_length_constraint(async_session: AsyncSession
     """Test that description must be between 3 and 120 characters."""
     invoice = Invoice(
         msisdn="254712345678",
+        merchant_msisdn="254798765432",
         amount_cents=10000,
         description="ab",  # Too short
         status="PENDING",
@@ -244,6 +253,7 @@ async def test_payment_creation(async_session: AsyncSession):
     # First create an invoice
     invoice = Invoice(
         msisdn="254712345678",
+        merchant_msisdn="254798765432",
         amount_cents=10000,
         description="Test invoice",
         status="PENDING",
@@ -282,6 +292,7 @@ async def test_payment_idempotency_key_unique(async_session: AsyncSession):
     # Create an invoice
     invoice = Invoice(
         msisdn="254712345678",
+        merchant_msisdn="254798765432",
         amount_cents=10000,
         description="Test invoice",
         status="PENDING",
@@ -323,6 +334,7 @@ async def test_payment_status_constraint(async_session: AsyncSession):
     # Create an invoice
     invoice = Invoice(
         msisdn="254712345678",
+        merchant_msisdn="254798765432",
         amount_cents=10000,
         description="Test invoice",
         status="PENDING",
@@ -351,6 +363,7 @@ async def test_payment_method_constraint(async_session: AsyncSession):
     # Create an invoice
     invoice = Invoice(
         msisdn="254712345678",
+        merchant_msisdn="254798765432",
         amount_cents=10000,
         description="Test invoice",
         status="PENDING",
@@ -382,6 +395,7 @@ async def test_message_log_creation(async_session: AsyncSession):
     # Create an invoice
     invoice = Invoice(
         msisdn="254712345678",
+        merchant_msisdn="254798765432",
         amount_cents=10000,
         description="Test invoice",
         status="PENDING",
@@ -470,6 +484,7 @@ async def test_invoice_payment_relationship(async_session: AsyncSession):
     # Create an invoice
     invoice = Invoice(
         msisdn="254712345678",
+        merchant_msisdn="254798765432",
         amount_cents=10000,
         description="Test invoice",
         status="PENDING",
@@ -515,6 +530,7 @@ async def test_invoice_message_relationship(async_session: AsyncSession):
     # Create an invoice
     invoice = Invoice(
         msisdn="254712345678",
+        merchant_msisdn="254798765432",
         amount_cents=10000,
         description="Test invoice",
         status="PENDING",
@@ -558,6 +574,7 @@ async def test_payment_invoice_backref(async_session: AsyncSession):
     # Create an invoice
     invoice = Invoice(
         msisdn="254712345678",
+        merchant_msisdn="254798765432",
         amount_cents=10000,
         description="Test invoice",
         status="PENDING",
@@ -594,6 +611,7 @@ async def test_cascade_delete_invoice_payments(async_session: AsyncSession):
     # Create an invoice
     invoice = Invoice(
         msisdn="254712345678",
+        merchant_msisdn="254798765432",
         amount_cents=10000,
         description="Test invoice",
         status="PENDING",
@@ -633,6 +651,7 @@ async def test_cascade_delete_invoice_messages(async_session: AsyncSession):
     # Create an invoice
     invoice = Invoice(
         msisdn="254712345678",
+        merchant_msisdn="254798765432",
         amount_cents=10000,
         description="Test invoice",
         status="PENDING",
@@ -671,6 +690,7 @@ async def test_invoice_repr():
     invoice = Invoice(
         id="test-id",
         msisdn="254712345678",
+        merchant_msisdn="254798765432",
         amount_cents=10000,
         description="Test invoice",
         status="PENDING",

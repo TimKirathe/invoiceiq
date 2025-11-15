@@ -10,28 +10,97 @@ import re
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from httpx import AsyncClient, Response
+from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from src.app.db import Base, get_db
 from src.app.main import app
 from src.app.models import Invoice, MessageLog
-from src.app.schemas import InvoiceCreate
+
+
+# Test database URL (in-memory SQLite)
+TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+
+# Create test engine and session
+test_engine = create_async_engine(
+    TEST_DATABASE_URL,
+    echo=False,
+    connect_args={"check_same_thread": False},
+)
+
+test_session_factory = async_sessionmaker(
+    test_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False,
+)
+
+
+async def override_get_db():
+    """Override get_db dependency to use test database."""
+    async with test_session_factory() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+
+
+# Override the dependency
+app.dependency_overrides[get_db] = override_get_db
+
+
+@pytest.fixture
+async def test_db():
+    """
+    Create test database tables and yield session.
+
+    Cleans up after each test by dropping all tables.
+    """
+    # Create tables
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    yield
+
+    # Drop tables
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+
+
+@pytest.fixture
+async def client():
+    """Create async test client."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        yield ac
+
+
+@pytest.fixture
+async def db_session():
+    """Provide a database session for tests."""
+    async with test_session_factory() as session:
+        yield session
 
 
 @pytest.mark.asyncio
-async def test_create_invoice_success(db_session: AsyncSession):
+async def test_create_invoice_success(db_session: AsyncSession, test_db):
     """Test that POST /invoices creates an invoice with PENDING status."""
     # Mock WhatsApp API to fail (so invoice stays PENDING)
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
         mock_post.side_effect = Exception("WhatsApp API unavailable")
 
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
             response = await client.post(
                 "/invoices",
                 json={
                     "msisdn": "254712345678",
                     "customer_name": "John Doe",
+                    "merchant_msisdn": "254798765432",
                     "amount_cents": 10000,
                     "description": "Test invoice for Phase 6",
                 },
@@ -49,31 +118,34 @@ async def test_create_invoice_success(db_session: AsyncSession):
         assert data["id"].startswith("INV-")
 
         # Verify database
-        result = await db_session.execute(select(Invoice).where(Invoice.id == data["id"]))
+        result = await db_session.execute(
+            select(Invoice).where(Invoice.id == data["id"])
+        )
         invoice = result.scalar_one()
         assert invoice.status == "PENDING"
         assert invoice.msisdn == "254712345678"
 
 
 @pytest.mark.asyncio
-async def test_create_invoice_sends_to_customer(db_session: AsyncSession):
+async def test_create_invoice_sends_to_customer(db_session: AsyncSession, test_db):
     """Test that invoice is sent to customer via WhatsApp with interactive button."""
     # Mock WhatsApp API response
     mock_response = Mock(spec=Response)
     mock_response.status_code = 200
-    mock_response.json.return_value = {
-        "messages": [{"id": "wamid.test123"}]
-    }
+    mock_response.json.return_value = {"messages": [{"id": "wamid.test123"}]}
 
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
         mock_post.return_value = mock_response
 
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
             response = await client.post(
                 "/invoices",
                 json={
                     "msisdn": "254798765432",
                     "customer_name": "Jane Smith",
+                    "merchant_msisdn": "254712345678",
                     "amount_cents": 50000,
                     "description": "Website design services",
                 },
@@ -110,23 +182,24 @@ async def test_create_invoice_sends_to_customer(db_session: AsyncSession):
 
 
 @pytest.mark.asyncio
-async def test_create_invoice_updates_status_to_sent(db_session: AsyncSession):
+async def test_create_invoice_updates_status_to_sent(db_session: AsyncSession, test_db):
     """Test that invoice status changes to SENT after successful delivery."""
     # Mock successful WhatsApp API response
     mock_response = Mock(spec=Response)
     mock_response.status_code = 200
-    mock_response.json.return_value = {
-        "messages": [{"id": "wamid.test456"}]
-    }
+    mock_response.json.return_value = {"messages": [{"id": "wamid.test456"}]}
 
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
         mock_post.return_value = mock_response
 
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
             response = await client.post(
                 "/invoices",
                 json={
                     "msisdn": "254701234567",
+                    "merchant_msisdn": "254798765432",
                     "amount_cents": 25000,
                     "description": "Consulting fees",
                 },
@@ -137,23 +210,28 @@ async def test_create_invoice_updates_status_to_sent(db_session: AsyncSession):
         assert data["status"] == "SENT"
 
         # Verify in database
-        result = await db_session.execute(select(Invoice).where(Invoice.id == data["id"]))
+        result = await db_session.execute(
+            select(Invoice).where(Invoice.id == data["id"])
+        )
         invoice = result.scalar_one()
         assert invoice.status == "SENT"
 
 
 @pytest.mark.asyncio
-async def test_create_invoice_stays_pending_on_failure(db_session: AsyncSession):
+async def test_create_invoice_stays_pending_on_failure(db_session: AsyncSession, test_db):
     """Test that invoice status stays PENDING if WhatsApp API fails."""
     # Mock WhatsApp API failure
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
         mock_post.side_effect = Exception("Network error")
 
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
             response = await client.post(
                 "/invoices",
                 json={
                     "msisdn": "254711111111",
+                    "merchant_msisdn": "254798765432",
                     "amount_cents": 15000,
                     "description": "Failed delivery test",
                 },
@@ -164,29 +242,32 @@ async def test_create_invoice_stays_pending_on_failure(db_session: AsyncSession)
         assert data["status"] == "PENDING"
 
         # Verify in database
-        result = await db_session.execute(select(Invoice).where(Invoice.id == data["id"]))
+        result = await db_session.execute(
+            select(Invoice).where(Invoice.id == data["id"])
+        )
         invoice = result.scalar_one()
         assert invoice.status == "PENDING"
 
 
 @pytest.mark.asyncio
-async def test_message_log_created(db_session: AsyncSession):
+async def test_message_log_created(db_session: AsyncSession, test_db):
     """Test that MessageLog entries are created for sent invoices."""
     # Mock successful WhatsApp API response
     mock_response = Mock(spec=Response)
     mock_response.status_code = 200
-    mock_response.json.return_value = {
-        "messages": [{"id": "wamid.test789"}]
-    }
+    mock_response.json.return_value = {"messages": [{"id": "wamid.test789"}]}
 
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
         mock_post.return_value = mock_response
 
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
             response = await client.post(
                 "/invoices",
                 json={
                     "msisdn": "254722222222",
+                    "merchant_msisdn": "254798765432",
                     "amount_cents": 30000,
                     "description": "Message log test",
                 },
@@ -213,23 +294,24 @@ async def test_message_log_created(db_session: AsyncSession):
 
 
 @pytest.mark.asyncio
-async def test_invoice_id_format(db_session: AsyncSession):
+async def test_invoice_id_format(db_session: AsyncSession, test_db):
     """Test that invoice ID follows INV-{timestamp}-{random} format."""
     # Mock WhatsApp API
     mock_response = Mock(spec=Response)
     mock_response.status_code = 200
-    mock_response.json.return_value = {
-        "messages": [{"id": "wamid.test000"}]
-    }
+    mock_response.json.return_value = {"messages": [{"id": "wamid.test000"}]}
 
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
         mock_post.return_value = mock_response
 
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
             response = await client.post(
                 "/invoices",
                 json={
                     "msisdn": "254733333333",
+                    "merchant_msisdn": "254798765432",
                     "amount_cents": 10000,
                     "description": "ID format test",
                 },
@@ -245,12 +327,15 @@ async def test_invoice_id_format(db_session: AsyncSession):
 @pytest.mark.asyncio
 async def test_invoice_validation_errors():
     """Test that invalid invoice data returns validation errors."""
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
         # Invalid MSISDN
         response = await client.post(
             "/invoices",
             json={
                 "msisdn": "123456789",  # Invalid format
+                "merchant_msisdn": "254798765432",
                 "amount_cents": 10000,
                 "description": "Test",
             },
@@ -262,6 +347,7 @@ async def test_invoice_validation_errors():
             "/invoices",
             json={
                 "msisdn": "254712345678",
+                "merchant_msisdn": "254798765432",
                 "amount_cents": 50,  # Less than 100 cents
                 "description": "Test",
             },
@@ -273,6 +359,7 @@ async def test_invoice_validation_errors():
             "/invoices",
             json={
                 "msisdn": "254712345678",
+                "merchant_msisdn": "254798765432",
                 "amount_cents": 10000,
                 "description": "ab",  # Less than 3 characters
             },
@@ -286,18 +373,19 @@ async def test_message_text_format():
     # Mock WhatsApp API
     mock_response = Mock(spec=Response)
     mock_response.status_code = 200
-    mock_response.json.return_value = {
-        "messages": [{"id": "wamid.test111"}]
-    }
+    mock_response.json.return_value = {"messages": [{"id": "wamid.test111"}]}
 
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
         mock_post.return_value = mock_response
 
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
             response = await client.post(
                 "/invoices",
                 json={
                     "msisdn": "254744444444",
+                    "merchant_msisdn": "254798765432",
                     "amount_cents": 10000,
                     "description": "Text format test",
                 },
@@ -320,3 +408,4 @@ async def test_message_text_format():
         # Line 2: Amount: KES {amount} | {description}
         assert "Amount: KES 100.00" in lines[1]
         assert "Text format test" in lines[1]
+
