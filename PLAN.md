@@ -232,6 +232,7 @@ See Phase 16 for detailed multi-tenancy migration strategy and database schema c
 - [x] Test log output format and ensure metadata-only approach is followed
 
 **Privacy Benefits:**
+
 - GDPR/CCPA compliant - minimal PII storage
 - Lower liability in case of data breach
 - Simpler compliance requirements
@@ -241,19 +242,18 @@ See Phase 16 for detailed multi-tenancy migration strategy and database schema c
 
 ---
 
-## Phase 11: Metrics & Observability (Day 6)
+## Phase 11: Basic Metrics & Observability (Day 6)
 
-- [ ] Add Prometheus client library to requirements.txt (or use custom metrics counter)
-- [ ] Create metrics collection in main.py (counters for invoices_created, invoices_sent, invoices_paid)
-- [ ] Add histogram for time-to-pay metric (track time from SENT to PAID status)
-- [ ] Expose GET /metrics endpoint for Prometheus scraping (or use FastAPI middleware)
-- [ ] Add logging of key metrics in structured format for log-based monitoring
-- [ ] Create database query functions to calculate conversion rate (paid/sent) and average payment time
-- [ ] Add endpoint GET /stats/summary to return basic stats (total invoices, paid invoices, conversion rate)
-- [ ] Write tests for metrics collection in tests/test_metrics.py
-- [ ] Verify metrics endpoint returns correct format
+- [x] Create src/app/services/metrics.py with database query functions:
+  - get_invoice_stats() - Returns total created, sent, paid, failed counts
+  - get_conversion_rate() - Returns paid/sent ratio
+  - get_average_payment_time() - Returns avg time from SENT to PAID
+- [x] Add GET /stats/summary endpoint in main.py that returns JSON with above metrics
+- [x] Ensure structured logs capture invoice state transitions and payment completions (already in Phase 10)
+- [x] Write tests for metrics calculations in tests/test_metrics.py
+- [x] Verify /stats/summary endpoint returns correct data
 
-**Testing Checkpoint:** Metrics collected correctly; /metrics endpoint accessible; stats calculations accurate.
+**Testing Checkpoint:** Stats endpoint accessible; calculations accurate; can monitor business health via simple API call.
 
 ---
 

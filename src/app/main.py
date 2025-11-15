@@ -10,13 +10,18 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from .config import settings
 from .db import create_tables, engine, get_db
 from .routers import invoices, payments, sms, whatsapp
+from .services.metrics import (
+    get_average_payment_time,
+    get_conversion_rate,
+    get_invoice_stats,
+)
 from .utils.logging import get_logger, setup_logging
 
 # Set up structured logging
@@ -199,6 +204,58 @@ async def readiness_check() -> dict[str, str]:
         raise HTTPException(
             status_code=503,
             detail="Database connection unavailable",
+        )
+
+
+# Stats endpoint
+@app.get("/stats/summary", tags=["stats"])
+async def stats_summary(db=Depends(get_db)) -> dict:
+    """
+    Get summary statistics for business metrics.
+
+    Returns aggregate statistics including:
+    - Invoice counts by status (total, pending, sent, paid, failed, cancelled)
+    - Conversion rate (percentage of sent invoices that were paid)
+    - Average payment time in seconds (time from payment initiation to completion)
+
+    Args:
+        db: Database session dependency
+
+    Returns:
+        Dictionary with invoice statistics, conversion rate, and average payment time
+
+    Raises:
+        HTTPException: 500 if metrics calculation fails
+    """
+    try:
+        # Get all metrics
+        invoice_stats = await get_invoice_stats(db)
+        conversion_rate = await get_conversion_rate(db)
+        avg_payment_time = await get_average_payment_time(db)
+
+        logger.info(
+            "Stats summary generated",
+            extra={
+                "total_invoices": invoice_stats["total"],
+                "conversion_rate": f"{conversion_rate:.2f}%",
+            },
+        )
+
+        return {
+            "invoice_stats": invoice_stats,
+            "conversion_rate": conversion_rate,
+            "average_payment_time_seconds": avg_payment_time,
+        }
+
+    except Exception as e:
+        logger.error(
+            "Failed to generate stats summary",
+            extra={"error": str(e)},
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate statistics: {str(e)}",
         )
 
 
