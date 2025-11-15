@@ -259,17 +259,17 @@ See Phase 16 for detailed multi-tenancy migration strategy and database schema c
 
 ## Phase 12: End-to-End Integration Testing (Day 6-7)
 
-- [ ] Set up pytest fixtures for test database (use SQLite in-memory or separate test DB)
-- [ ] Create mock services for external APIs (WhatsApp, SMS, M-PESA) using pytest-mock or responses library
-- [ ] Write end-to-end test: merchant sends one-line invoice command � invoice created � customer receives WhatsApp � customer clicks pay � STK sent � callback � receipts sent
-- [ ] Write end-to-end test for guided flow: step-by-step invoice creation with all validation steps
-- [ ] Write test for SMS fallback: WhatsApp fails � SMS sent � delivery receipt logged
-- [ ] Write test for payment failure: STK callback with non-zero ResultCode � invoice status FAILED � merchant notified
-- [ ] Write test for idempotency: duplicate STK request with same key � returns cached response, no duplicate charge
-- [ ] Write test for concurrent requests: multiple invoices created simultaneously � all processed correctly
-- [ ] Write test for invalid inputs at each step: malformed phone, negative amount, empty description
-- [ ] Run full test suite with coverage report (pytest --cov=. --cov-report=html)
-- [ ] Ensure minimum 80% code coverage on core business logic
+- [x] Set up pytest fixtures for test database (use SQLite in-memory or separate test DB)
+- [x] Create mock services for external APIs (WhatsApp, SMS, M-PESA) using pytest-mock or responses library
+- [x] Write end-to-end test: merchant sends one-line invoice command � invoice created � customer receives WhatsApp � customer clicks pay � STK sent � callback � receipts sent
+- [x] Write end-to-end test for guided flow: step-by-step invoice creation with all validation steps
+- [x] Write test for SMS fallback: WhatsApp fails � SMS sent � delivery receipt logged
+- [x] Write test for payment failure: STK callback with non-zero ResultCode � invoice status FAILED � merchant notified
+- [x] Write test for idempotency: duplicate STK request with same key � returns cached response, no duplicate charge
+- [x] Write test for concurrent requests: multiple invoices created simultaneously � all processed correctly
+- [x] Write test for invalid inputs at each step: malformed phone, negative amount, empty description
+- [x] Run full test suite with coverage report (pytest --cov=. --cov-report=html)
+- [x] Ensure minimum 80% code coverage on core business logic
 
 **Sub-agent Usage:** Use **jephthah** to generate comprehensive integration tests.
 
