@@ -331,14 +331,14 @@ See Phase 16 for detailed multi-tenancy migration strategy and database schema c
 
 ## Phase 15: Production Readiness & Pilot Testing (Day 7)
 
-**Note:** The SQLAlchemy code written in Phase 2 requires NO changes for production. Simply update the DATABASE_URL environment variable to point to Supabase Postgres (or any PostgreSQL provider). SQLAlchemy's abstraction layer handles the connection - this is the benefit of using an ORM.
+**Note:** The SQLAlchemy code written in Phase 2 requires NO changes for production. Simply update the DATABASE_URL environment variable to point to Supabase Postgres. SQLAlchemy's abstraction layer handles the connection - this is the benefit of using an ORM.
 
-**State Machine Note:** For production deployment, migrate the in-memory state machine from Phase 5 to Redis for persistence across server restarts and horizontal scaling. Add Redis connection configuration and update state storage/retrieval logic.
+**State Machine Note:** For MVP, the in-memory state machine is sufficient for single-instance deployment on Fly.io. For future scaling with multiple instances, consider migrating to Redis or database-backed state storage.
 
-- [ ] Deploy application to production server or serverless platform (e.g., Railway, Render, AWS Lambda)
-- [ ] Migrate state machine from in-memory dict to Redis for production persistence
-- [ ] Configure production database (Supabase Postgres or managed PostgreSQL)
-- [ ] Run database migrations in production (alembic upgrade head)
+- [ ] Deploy application to Fly.io production (flyctl deploy)
+- [ ] Verify state machine works correctly in production (in-memory is acceptable for MVP single instance)
+- [ ] Configure production database (Supabase Postgres - create project and get connection string)
+- [ ] Run database migrations in production (alembic upgrade head - runs automatically via release_command)
 - [ ] Configure production environment variables in deployment platform
 - [ ] Set up reverse proxy with SSL (Caddy or Nginx) if using VPS deployment
 - [ ] Register webhook URLs with WhatsApp Business API (verify webhook using production URL)

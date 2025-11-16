@@ -102,33 +102,100 @@ flyctl status -a your-app-name
 
 ## Database Setup
 
-### Option 1: Fly Postgres (Recommended for Production)
+### Supabase PostgreSQL (Recommended for Production)
+
+InvoiceIQ uses Supabase for managed PostgreSQL database with built-in backups, real-time capabilities, and easy scaling.
+
+#### 1. Create Supabase Project
+
+1. **Sign up/Login to Supabase**
+   - Visit https://supabase.com
+   - Create a new account or sign in
+
+2. **Create New Project**
+   - Click "New Project"
+   - Choose your organization
+   - Enter project name (e.g., "invoiceiq-prod")
+   - Choose a strong database password
+   - Select region: **Singapore** (closest to Kenya for low latency)
+   - Click "Create new project"
+
+3. **Wait for Project Initialization** (takes 1-2 minutes)
+
+#### 2. Get Database Connection String
+
+1. **Navigate to Project Settings**
+   - Click the gear icon (Settings) in the sidebar
+   - Go to "Database" section
+
+2. **Copy Connection String**
+   - Find "Connection String" section
+   - Select "URI" tab
+   - Copy the connection string (it looks like this):
+     ```
+     postgresql://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres
+     ```
+   - Replace `[YOUR-PASSWORD]` with your actual database password
+
+3. **Convert to AsyncPG Format**
+   - InvoiceIQ uses AsyncPG driver
+   - Convert the connection string to:
+     ```
+     postgresql+asyncpg://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?sslmode=require
+     ```
+   - Note: Add `+asyncpg` after `postgresql` and `?sslmode=require` at the end
+
+#### 3. Set Database URL in Fly.io
 
 ```bash
-# Create a PostgreSQL cluster
-flyctl postgres create --name your-app-db --region nbo
-
-# Attach database to your app
-flyctl postgres attach your-app-db -a your-app-name
+# Set DATABASE_URL secret with your Supabase connection string
+flyctl secrets set DATABASE_URL="postgresql+asyncpg://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?sslmode=require" -a your-app-name
 ```
 
-This automatically sets the `DATABASE_URL` secret for your app.
-
-### Option 2: External PostgreSQL
-
-If using an external PostgreSQL database:
+#### 4. Verify Database Connection
 
 ```bash
-# Set DATABASE_URL manually
-flyctl secrets set DATABASE_URL="postgresql+asyncpg://user:password@host:5432/dbname" -a your-app-name
-```
-
-### Verify Database Connection
-
-```bash
-# Check secrets (DATABASE_URL should be listed)
+# Check that DATABASE_URL secret is set
 flyctl secrets list -a your-app-name
+
+# After deployment, test the connection via readiness check
+curl https://your-app-name.fly.dev/readyz
+# Should return: {"status": "ready", "database": "connected"}
 ```
+
+### Supabase Benefits
+
+- **Automatic Backups:** Daily backups with point-in-time recovery
+- **Connection Pooling:** Built-in connection pooling on port 6543 (optional)
+- **SSL Encryption:** Data encrypted in transit and at rest
+- **Dashboard Access:** Visual query editor and table browser
+- **Real-time Logs:** View database logs in Supabase dashboard
+- **Scaling:** Easy vertical scaling from dashboard
+- **Extensions:** PostGIS, pg_stat_statements pre-installed
+
+### Supabase Dashboard
+
+Access your database dashboard at:
+```
+https://supabase.com/dashboard/project/[PROJECT-REF]
+```
+
+Features:
+- **Table Editor:** View and edit data visually
+- **SQL Editor:** Run custom SQL queries
+- **Database Logs:** Monitor query performance
+- **API Docs:** Auto-generated API documentation
+
+### Connection Pooling (Optional)
+
+For high-traffic scenarios, use Supabase's connection pooler:
+
+```bash
+# Use port 6543 for pooled connections (transaction mode)
+flyctl secrets set DATABASE_URL="postgresql+asyncpg://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:6543/postgres?sslmode=require" -a your-app-name
+```
+
+**Note:** Connection pooling in transaction mode is recommended for serverless environments with many concurrent connections.
 
 ---
 
@@ -251,6 +318,8 @@ Migrations run automatically on every deployment via the release command in `fly
   release_command = "alembic upgrade head"
 ```
 
+This ensures your Supabase database schema is always up-to-date with your application code.
+
 ### Manual Migration Run
 
 If you need to run migrations manually:
@@ -265,6 +334,23 @@ alembic upgrade head
 # Exit the SSH session
 exit
 ```
+
+### Running Migrations Locally Against Supabase
+
+To test migrations against your Supabase database before deploying:
+
+```bash
+# Set DATABASE_URL to your Supabase connection string
+export DATABASE_URL="postgresql+asyncpg://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?sslmode=require"
+
+# Run migrations
+alembic upgrade head
+
+# Check migration status
+alembic current
+```
+
+**Important:** Only do this in a staging/test environment, not production!
 
 ### Check Migration Status
 
@@ -297,6 +383,17 @@ alembic downgrade <revision_id>
 # Exit
 exit
 ```
+
+### View Migrations in Supabase Dashboard
+
+You can also view applied migrations in the Supabase dashboard:
+
+1. Go to your Supabase project dashboard
+2. Navigate to "SQL Editor"
+3. Run this query to see migration history:
+   ```sql
+   SELECT * FROM alembic_version;
+   ```
 
 ---
 
@@ -535,17 +632,27 @@ flyctl ssh console -a your-app-name
 # Check DATABASE_URL is set
 flyctl secrets list -a your-app-name
 
-# Verify Postgres is attached
-flyctl postgres list
-
-# Check Postgres status
-flyctl status -a your-app-db
+# Verify the connection string format is correct (should include +asyncpg and ?sslmode=require)
+# Example: postgresql+asyncpg://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?sslmode=require
 
 # Test database connection from app
 flyctl ssh console -a your-app-name
 # Inside container:
 python -c "from src.app.db import engine; import asyncio; asyncio.run(engine.dispose())"
+
+# Check Supabase project status
+# Visit https://supabase.com/dashboard and check if your project is healthy
+
+# Verify IP whitelisting (if configured in Supabase)
+# Supabase allows all IPs by default, but check Network Restrictions in project settings
 ```
+
+**Common Issues:**
+- Missing `+asyncpg` in connection string
+- Missing `?sslmode=require` parameter
+- Incorrect password (check Supabase project settings)
+- Database project paused (free tier projects pause after inactivity)
+- Network connectivity issues (check Supabase status page)
 
 #### 3. Webhooks Not Receiving Requests
 
@@ -659,16 +766,48 @@ flyctl support -a your-app-name
 
 ### Backup Database
 
+#### Automatic Backups (Supabase)
+
+Supabase automatically backs up your database:
+
+- **Free Tier:** Daily backups (7-day retention)
+- **Pro Tier:** Daily backups (30-day retention)
+- **Point-in-time Recovery (Pro+):** Restore to any point in the last 30 days
+
+#### Access Backups
+
+1. **View Backups**
+   - Go to https://supabase.com/dashboard/project/[PROJECT-REF]
+   - Navigate to "Database" → "Backups"
+   - View list of available backups
+
+2. **Download Backup**
+   - Click on a backup to download it
+   - Format: SQL dump file
+
+3. **Restore from Backup**
+   - In Supabase dashboard, go to "Database" → "Backups"
+   - Select the backup you want to restore
+   - Click "Restore" (this will replace current data)
+
+#### Manual Database Backup
+
+For additional safety, create manual backups:
+
 ```bash
-# Backup Fly Postgres
-flyctl postgres backup -a your-app-db
+# Using pg_dump (requires PostgreSQL client tools)
+pg_dump "postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres" > backup_$(date +%Y%m%d).sql
 
-# List backups
-flyctl postgres backup list -a your-app-db
-
-# Restore from backup
-flyctl postgres restore --backup-id <id> -a your-app-db
+# Restore from manual backup
+psql "postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres" < backup_20250116.sql
 ```
+
+#### Backup Best Practices
+
+- Monitor backup status weekly in Supabase dashboard
+- Test restore procedure at least once before going live
+- Consider upgrading to Pro tier for longer retention
+- Export critical data regularly for offline storage
 
 ### Update Application
 

@@ -16,7 +16,7 @@ InvoiceIQ is a minimal MVP that enables merchants to create and send invoices vi
 ## Tech Stack
 
 - **Backend:** FastAPI (Python 3.11+)
-- **Database:** PostgreSQL (via Supabase or Fly Postgres)
+- **Database:** PostgreSQL (via Supabase)
 - **Messaging:** WhatsApp Cloud API, SMS (Africa's Talking)
 - **Payments:** M-PESA STK Push (Safaricom Daraja API)
 - **Deployment:** Fly.io with automatic HTTPS
@@ -78,13 +78,14 @@ InvoiceIQ is a minimal MVP that enables merchants to create and send invoices vi
 
 2. **Access the application**
    - API: http://localhost:8000
-   - PostgreSQL: localhost:5432
-   - Redis: localhost:6379
+   - PostgreSQL: localhost:5432 (local development only)
 
 3. **Stop the containers**
    ```bash
    docker-compose down
    ```
+
+**Note:** Docker Compose is for local development only. Production uses Supabase for managed PostgreSQL.
 
 ## Deployment
 
@@ -96,21 +97,26 @@ InvoiceIQ is a minimal MVP that enables merchants to create and send invoices vi
    flyctl auth login
    ```
 
-2. **Customize app name**
+2. **Set up Supabase database**
+   - Create a Supabase account at https://supabase.com
+   - Create a new project
+   - Get your database connection string from project settings
+   - Format: `postgresql+asyncpg://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?sslmode=require`
+
+3. **Customize app name**
    - Edit `fly.toml` and set your app name
 
-3. **Launch the app**
+4. **Launch the app**
    ```bash
    flyctl launch
    ```
 
-4. **Set up database**
+5. **Configure database secret**
    ```bash
-   flyctl postgres create --name invoiceiq-db --region nbo
-   flyctl postgres attach invoiceiq-db
+   flyctl secrets set DATABASE_URL="postgresql+asyncpg://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?sslmode=require"
    ```
 
-5. **Configure secrets**
+6. **Configure other secrets**
    ```bash
    flyctl secrets set \
      WABA_TOKEN="your_token" \
@@ -124,7 +130,7 @@ InvoiceIQ is a minimal MVP that enables merchants to create and send invoices vi
      MPESA_CALLBACK_URL="https://your-app.fly.dev/payments/stk/callback"
    ```
 
-6. **Deploy**
+7. **Deploy**
    ```bash
    flyctl deploy
    ```
