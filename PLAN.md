@@ -285,7 +285,6 @@ See Phase 16 for detailed multi-tenancy migration strategy and database schema c
 - [ ] Implement retry logic for M-PESA token generation and STK requests
 - [ ] Add timeout configuration for all external HTTP requests (default 10 seconds)
 - [ ] Add validation for all webhook signatures (WhatsApp HMAC if available, or IP whitelist)
-- [ ] Implement rate limiting for invoice creation endpoint (e.g., max 10 per minute per user)
 - [ ] Add circuit breaker pattern for M-PESA API (stop sending requests if API is down)
 - [ ] Create custom exception classes for domain errors (InvoiceNotFound, PaymentFailed, InvalidMSISDN)
 - [ ] Add user-friendly error messages in bot responses (avoid exposing technical details)

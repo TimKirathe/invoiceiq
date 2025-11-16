@@ -12,6 +12,10 @@ from typing import AsyncGenerator
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from sqlalchemy import text
 
 from .config import settings
@@ -27,6 +31,10 @@ from .utils.logging import get_logger, setup_logging
 # Set up structured logging
 setup_logging(level="DEBUG" if settings.debug else "INFO")
 logger = get_logger(__name__)
+
+# Initialize rate limiter
+# Uses client IP address as the key for rate limiting
+limiter = Limiter(key_func=get_remote_address)
 
 
 @asynccontextmanager
@@ -63,6 +71,10 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Attach rate limiter to app
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Configure CORS middleware (allow all origins for MVP)
 app.add_middleware(
@@ -154,6 +166,52 @@ async def log_requests(request: Request, call_next) -> Response:
     response.headers["X-Process-Time"] = str(process_time)
 
     return response
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """
+    Global exception handler for unhandled exceptions.
+
+    Catches all unhandled exceptions, logs them with full stack trace,
+    and returns a 500 error with a unique error ID for tracking.
+    Does not expose technical details to users.
+
+    Args:
+        request: The incoming HTTP request
+        exc: The unhandled exception
+
+    Returns:
+        JSON response with error ID and generic message
+    """
+    # Generate unique error ID for tracking
+    error_id = str(uuid.uuid4())
+    correlation_id = getattr(request.state, "correlation_id", None)
+
+    # Log the exception with full stack trace
+    logger.error(
+        "Unhandled exception occurred",
+        extra={
+            "error_id": error_id,
+            "correlation_id": correlation_id,
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+            "path": request.url.path,
+            "method": request.method,
+        },
+        exc_info=True,
+    )
+
+    # Return generic error response without exposing technical details
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "error_id": error_id,
+            "message": "An unexpected error occurred. Please contact support with the error ID if the issue persists.",
+        },
+        headers={"X-Error-ID": error_id},
+    )
 
 
 # Health check endpoints

@@ -5,10 +5,18 @@ This module provides the SMSService class for sending SMS messages via
 Africa's Talking, with fallback support when WhatsApp delivery fails.
 """
 
+import logging
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 import httpx
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+    before_sleep_log,
+)
 
 from ..config import settings
 from ..models import Invoice
@@ -50,6 +58,13 @@ class SMSService:
             },
         )
 
+    @retry(
+        retry=retry_if_exception_type((httpx.RequestError, httpx.TimeoutException)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=4),
+        before_sleep=before_sleep_log(logger, logging.INFO),
+        reraise=True,
+    )
     async def send_sms(
         self,
         to: str,
@@ -57,7 +72,12 @@ class SMSService:
         from_: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Send an SMS message via Africa's Talking API.
+        Send an SMS message via Africa's Talking API with retry logic.
+
+        Retries on network errors with exponential backoff:
+        - 3 attempts total
+        - Wait times: 1s, 2s, 4s
+        - Retries only on network/timeout errors, not API errors
 
         Args:
             to: Recipient's phone number (MSISDN in E.164 format)
@@ -68,7 +88,7 @@ class SMSService:
             Dictionary with status and response data from API
 
         Raises:
-            Exception: If SMS sending fails due to network or API errors
+            Exception: If SMS sending fails due to network or API errors after retries
         """
         # Validate phone number
         try:

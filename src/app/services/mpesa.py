@@ -6,16 +6,50 @@ Daraja API, including OAuth token generation and STK Push initiation.
 """
 
 import base64
+import logging
 import time
 from datetime import datetime
 from typing import Any, Dict
 
 import httpx
+import pybreaker
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+    before_sleep_log,
+)
 
 from ..config import settings
 from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+# Custom circuit breaker listener for logging state changes
+class MPesaCircuitBreakerListener(pybreaker.CircuitBreakerListener):
+    """Custom listener to log M-PESA circuit breaker state changes."""
+
+    def state_change(self, cb, old_state, new_state):
+        """Log when circuit breaker state changes."""
+        logger.warning(
+            f"M-PESA circuit breaker state changed from {old_state.name} to {new_state.name}",
+            extra={
+                "old_state": old_state.name,
+                "new_state": new_state.name,
+                "fail_counter": cb.fail_counter,
+            },
+        )
+
+
+# Circuit breaker for M-PESA API
+# Opens after 5 failures, stays open for 60 seconds before attempting recovery
+mpesa_circuit_breaker = pybreaker.CircuitBreaker(
+    fail_max=5,
+    reset_timeout=60,
+    listeners=[MPesaCircuitBreakerListener()],
+)
 
 
 class MPesaService:
@@ -57,19 +91,31 @@ class MPesaService:
             extra={"environment": self.environment, "base_url": self.base_url},
         )
 
+    @retry(
+        retry=retry_if_exception_type((httpx.RequestError, httpx.TimeoutException)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=4),
+        before_sleep=before_sleep_log(logger, logging.INFO),
+        reraise=True,
+    )
     async def get_access_token(self) -> str:
         """
-        Get OAuth access token with caching.
+        Get OAuth access token with caching and retry logic.
 
         Checks if cached token exists and is not expired. If cached and valid,
         returns cached token. Otherwise, generates new token from M-PESA API
         and caches it with expiration timestamp.
 
+        Retries on network errors with exponential backoff:
+        - 3 attempts total
+        - Wait times: 1s, 2s, 4s
+        - Retries only on network/timeout errors, not API errors
+
         Returns:
             M-PESA OAuth access token
 
         Raises:
-            httpx.HTTPError: If token generation fails
+            httpx.HTTPError: If token generation fails after retries
             ValueError: If response is invalid
         """
         # Check if cached token exists and is not expired
@@ -99,7 +145,7 @@ class MPesaService:
         headers = {"Authorization": auth_header}
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(oauth_url, headers=headers)
                 response.raise_for_status()
 
@@ -175,6 +221,13 @@ class MPesaService:
 
         return timestamp
 
+    @retry(
+        retry=retry_if_exception_type((httpx.RequestError, httpx.TimeoutException)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=4),
+        before_sleep=before_sleep_log(logger, logging.INFO),
+        reraise=True,
+    )
     async def initiate_stk_push(
         self,
         phone_number: str,
@@ -183,9 +236,18 @@ class MPesaService:
         transaction_desc: str,
     ) -> Dict[str, Any]:
         """
-        Initiate M-PESA STK Push request.
+        Initiate M-PESA STK Push request with retry logic and circuit breaker.
 
         Sends STK Push request to customer's phone to prompt for M-PESA payment.
+
+        Retries on network errors with exponential backoff:
+        - 3 attempts total
+        - Wait times: 1s, 2s, 4s
+        - Retries only on network/timeout errors, not API errors
+
+        Circuit breaker protection:
+        - Opens after 5 consecutive failures
+        - Stays open for 60 seconds before attempting recovery
 
         Args:
             phone_number: Customer MSISDN (254XXXXXXXXX format)
@@ -197,8 +259,9 @@ class MPesaService:
             M-PESA API response data
 
         Raises:
-            httpx.HTTPError: If STK Push request fails
+            httpx.HTTPError: If STK Push request fails after retries
             ValueError: If response is invalid
+            pybreaker.CircuitBreakerError: If circuit breaker is open
         """
         logger.info(
             "Initiating STK Push",
@@ -209,6 +272,23 @@ class MPesaService:
             },
         )
 
+        # Wrap the actual API call with circuit breaker
+        return await self._initiate_stk_push_with_circuit_breaker(
+            phone_number, amount, account_reference, transaction_desc
+        )
+
+    async def _initiate_stk_push_with_circuit_breaker(
+        self,
+        phone_number: str,
+        amount: int,
+        account_reference: str,
+        transaction_desc: str,
+    ) -> Dict[str, Any]:
+        """
+        Internal method to initiate STK Push with circuit breaker protection.
+
+        This method is wrapped by the circuit breaker to prevent cascading failures.
+        """
         # Get access token
         access_token = await self.get_access_token()
 
@@ -231,7 +311,7 @@ class MPesaService:
             "TransactionDesc": transaction_desc,
         }
 
-        # Make STK Push request
+        # Make STK Push request with circuit breaker
         stk_url = f"{self.base_url}/mpesa/stkpush/v1/processrequest"
         headers = {
             "Authorization": f"Bearer {access_token}",
@@ -239,22 +319,38 @@ class MPesaService:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(stk_url, json=payload, headers=headers)
-                response.raise_for_status()
+            # Wrap the HTTP call with circuit breaker
+            @mpesa_circuit_breaker
+            async def make_stk_request() -> Dict[str, Any]:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.post(stk_url, json=payload, headers=headers)
+                    response.raise_for_status()
+                    data = response.json()
 
-                data = response.json()
+                    logger.info(
+                        "STK Push initiated successfully",
+                        extra={
+                            "phone_number": phone_number,
+                            "amount": amount,
+                            "response": data,
+                        },
+                    )
 
-                logger.info(
-                    "STK Push initiated successfully",
-                    extra={
-                        "phone_number": phone_number,
-                        "amount": amount,
-                        "response": data,
-                    },
-                )
+                    return data
 
-                return data
+            return await make_stk_request()
+
+        except pybreaker.CircuitBreakerError as e:
+            logger.error(
+                "Circuit breaker is OPEN - M-PESA API is unavailable",
+                extra={
+                    "error": str(e),
+                    "phone_number": phone_number,
+                    "amount": amount,
+                },
+                exc_info=True,
+            )
+            raise
 
         except httpx.HTTPError as e:
             logger.error(

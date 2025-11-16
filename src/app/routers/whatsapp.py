@@ -26,6 +26,42 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
+def validate_webhook_signature(payload: dict[str, Any], signature: str) -> bool:
+    """
+    Validate WhatsApp webhook signature for production security.
+
+    TODO: Implement HMAC signature validation in production.
+    This is a placeholder for MVP - production should validate webhooks
+    using HMAC SHA256 signature with app secret.
+
+    Args:
+        payload: The webhook payload dict
+        signature: The X-Hub-Signature-256 header value
+
+    Returns:
+        bool: True if signature is valid (always True in MVP)
+
+    Example implementation for production:
+        import hmac
+        import hashlib
+        payload_bytes = json.dumps(payload, separators=(',', ':')).encode('utf-8')
+        expected_signature = hmac.new(
+            settings.waba_app_secret.encode('utf-8'),
+            payload_bytes,
+            hashlib.sha256
+        ).hexdigest()
+        return hmac.compare_digest(f"sha256={expected_signature}", signature)
+    """
+    # MVP: Log warning but don't block requests
+    if not settings.waba_verify_token:
+        logger.warning(
+            "Webhook signature validation is disabled in MVP - "
+            "WABA_APP_SECRET not configured. Enable for production!",
+            extra={"has_signature": bool(signature)},
+        )
+    return True  # Always allow in MVP
+
+
 class WebhookPayload(BaseModel):
     """
     Schema for WhatsApp webhook POST payload.

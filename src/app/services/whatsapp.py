@@ -6,11 +6,19 @@ Cloud API, including message parsing, command recognition, state machine managem
 and message sending functionality.
 """
 
+import logging
 import re
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 import httpx
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+    before_sleep_log,
+)
 
 from ..config import settings
 from ..utils.logging import get_logger
@@ -119,6 +127,72 @@ class ConversationStateManager:
         """
         cls.states[user_id] = {"state": cls.STATE_IDLE, "data": {}}
         logger.info("State cleared", extra={"user_id": user_id})
+
+
+def get_user_friendly_error_message(error: Exception) -> str:
+    """
+    Convert technical error messages to user-friendly messages.
+
+    Maps common exceptions to simple, actionable messages for users.
+    Avoids exposing technical details to end users.
+
+    Args:
+        error: The exception that occurred
+
+    Returns:
+        A user-friendly error message string
+
+    Examples:
+        >>> get_user_friendly_error_message(ValueError("Invalid MSISDN"))
+        "Invalid phone number. Please use format: 2547XXXXXXXX"
+
+        >>> get_user_friendly_error_message(httpx.TimeoutException())
+        "Service temporarily unavailable. Please try again in a moment."
+    """
+    error_type = type(error).__name__
+    error_message = str(error).lower()
+
+    # Network and timeout errors
+    if error_type in ("TimeoutException", "ConnectTimeout", "ReadTimeout"):
+        return "Service temporarily unavailable. Please try again in a moment."
+
+    if error_type in ("RequestError", "ConnectError", "NetworkError"):
+        return "Connection issue. Please check your internet and try again."
+
+    # Validation errors
+    if "invalid" in error_message and "phone" in error_message:
+        return "Invalid phone number. Please use format: 2547XXXXXXXX"
+
+    if "invalid" in error_message and "amount" in error_message:
+        return "Invalid amount. Please enter a valid number (minimum 1 KES)."
+
+    if "description" in error_message and ("short" in error_message or "long" in error_message):
+        return "Description must be between 3 and 120 characters."
+
+    # M-PESA specific errors
+    if "circuit breaker" in error_message.lower():
+        return "Payment service is temporarily unavailable. Please try again later."
+
+    if "stk push" in error_message.lower() or "mpesa" in error_message.lower():
+        return "Payment initiation failed. Please try again or contact support."
+
+    # WhatsApp API errors
+    if "whatsapp" in error_message and "40" in error_message:
+        return "Message delivery failed. Please check the phone number."
+
+    if "rate limit" in error_message.lower() or "too many" in error_message.lower():
+        return "Too many requests. Please wait a moment and try again."
+
+    # Database errors
+    if "database" in error_message or "connection" in error_message:
+        return "System temporarily unavailable. Please try again shortly."
+
+    # Generic fallback
+    logger.warning(
+        "Unmapped error type in user-friendly message helper",
+        extra={"error_type": error_type, "error_message": error_message},
+    )
+    return "Something went wrong. Please try again or contact support if this persists."
 
 
 class WhatsAppService:
@@ -450,9 +524,21 @@ class WhatsAppService:
             "action": "error",
         }
 
+    @retry(
+        retry=retry_if_exception_type((httpx.RequestError, httpx.TimeoutException)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=4),
+        before_sleep=before_sleep_log(logger, logging.INFO),
+        reraise=True,
+    )
     async def send_message(self, to: str, message: str) -> Optional[Dict[str, Any]]:
         """
-        Send a text message to a WhatsApp user.
+        Send a text message to a WhatsApp user with retry logic.
+
+        Retries on network errors with exponential backoff:
+        - 3 attempts total
+        - Wait times: 1s, 2s, 4s
+        - Retries only on network/timeout errors, not API errors
 
         Args:
             to: Recipient's phone number (MSISDN)
@@ -460,6 +546,9 @@ class WhatsAppService:
 
         Returns:
             Response data from WhatsApp API, or None on failure
+
+        Raises:
+            Exception: If all retry attempts fail or API returns error
         """
         url = f"{self.base_url}/{self.waba_phone_id}/messages"
         headers = {
@@ -475,8 +564,8 @@ class WhatsAppService:
         }
 
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(url, json=payload, headers=headers, timeout=30.0)
+            async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+                response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
                 data = await response.json()
 

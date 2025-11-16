@@ -8,8 +8,10 @@ sending them to customers via WhatsApp, and managing invoice status.
 import random
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from ..db import get_db
 from ..models import Invoice
@@ -22,6 +24,9 @@ logger = get_logger(__name__)
 
 # Create router
 router = APIRouter()
+
+# Initialize rate limiter (uses client IP address as key)
+limiter = Limiter(key_func=get_remote_address)
 
 
 def generate_invoice_id() -> str:
@@ -42,12 +47,17 @@ def generate_invoice_id() -> str:
 
 
 @router.post("", response_model=InvoiceResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute")
 async def create_invoice(
+    request: Request,
     invoice_data: InvoiceCreate,
     db: AsyncSession = Depends(get_db),
 ) -> Invoice:
     """
     Create a new invoice and send it to the customer via WhatsApp.
+
+    Rate limiting: 10 requests per minute per IP address.
+    Exceeding the limit returns HTTP 429 (Too Many Requests).
 
     This endpoint:
     1. Creates an invoice record in the database with PENDING status
@@ -56,6 +66,7 @@ async def create_invoice(
     4. Returns the created invoice
 
     Args:
+        request: The HTTP request (required for rate limiting)
         invoice_data: Invoice creation data (customer info, amount, description)
         db: Database session dependency
 
@@ -63,6 +74,7 @@ async def create_invoice(
         The created invoice with current status
 
     Raises:
+        HTTPException: 429 if rate limit exceeded
         HTTPException: 400 if invoice data is invalid
         HTTPException: 500 if database operation fails
     """
