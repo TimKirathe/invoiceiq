@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database service
+  postgres:
+    image: postgres:15-alpine
+    container_name: invoiceiq-postgres
+    environment:
+      POSTGRES_DB: invoiceiq
+      POSTGRES_USER: invoiceiq_user
+      POSTGRES_PASSWORD: invoiceiq_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U invoiceiq_user -d invoiceiq"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis service (for future state machine migration)
+  redis:
+    image: redis:7-alpine
+    container_name: invoiceiq-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # InvoiceIQ application service
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: invoiceiq-app
+    ports:
+      - "8000:8000"
+    environment:
+      # Database connection
+      DATABASE_URL: postgresql+asyncpg://invoiceiq_user:invoiceiq_pass@postgres:5432/invoiceiq
+
+      # Application settings
+      APP_NAME: InvoiceIQ
+      DEBUG: "true"
+      ENVIRONMENT: development
+
+      # Load other variables from .env file
+      WABA_TOKEN: ${WABA_TOKEN}
+      WABA_PHONE_ID: ${WABA_PHONE_ID}
+      WABA_VERIFY_TOKEN: ${WABA_VERIFY_TOKEN}
+
+      SMS_API_KEY: ${SMS_API_KEY}
+      SMS_USERNAME: ${SMS_USERNAME:-sandbox}
+      SMS_SENDER_ID: ${SMS_SENDER_ID}
+      SMS_USE_SANDBOX: ${SMS_USE_SANDBOX:-true}
+
+      MPESA_CONSUMER_KEY: ${MPESA_CONSUMER_KEY}
+      MPESA_CONSUMER_SECRET: ${MPESA_CONSUMER_SECRET}
+      MPESA_SHORTCODE: ${MPESA_SHORTCODE}
+      MPESA_PASSKEY: ${MPESA_PASSKEY}
+      MPESA_CALLBACK_URL: ${MPESA_CALLBACK_URL:-http://localhost:8000/payments/stk/callback}
+      MPESA_ENVIRONMENT: ${MPESA_ENVIRONMENT:-sandbox}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      # Mount source code for hot-reloading in development
+      - ./src:/app/src
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  default:
+    name: invoiceiq-network

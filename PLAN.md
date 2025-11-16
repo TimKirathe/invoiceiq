@@ -279,38 +279,53 @@ See Phase 16 for detailed multi-tenancy migration strategy and database schema c
 
 ## Phase 13: Error Handling & Resilience (Day 5-6)
 
-- [ ] Add global exception handler in main.py to catch unhandled exceptions and return 500 with error ID
-- [ ] Implement retry logic for WhatsApp API calls (3 retries with exponential backoff)
-- [ ] Implement retry logic for SMS API calls
-- [ ] Implement retry logic for M-PESA token generation and STK requests
-- [ ] Add timeout configuration for all external HTTP requests (default 10 seconds)
-- [ ] Add validation for all webhook signatures (WhatsApp HMAC if available, or IP whitelist)
-- [ ] Add circuit breaker pattern for M-PESA API (stop sending requests if API is down)
-- [ ] Create custom exception classes for domain errors (InvoiceNotFound, PaymentFailed, InvalidMSISDN)
-- [ ] Add user-friendly error messages in bot responses (avoid exposing technical details)
-- [ ] Write tests for retry logic in tests/test_resilience.py
-- [ ] Test error scenarios: API timeouts, network errors, invalid responses
+- [x] Add global exception handler in main.py to catch unhandled exceptions and return 500 with error ID
+- [x] Implement retry logic for WhatsApp API calls (3 retries with exponential backoff)
+- [x] Implement retry logic for SMS API calls
+- [x] Implement retry logic for M-PESA token generation and STK requests
+- [x] Add timeout configuration for all external HTTP requests (default 10 seconds)
+- [x] Add validation for all webhook signatures (WhatsApp HMAC if available, or IP whitelist)
+- [x] Add circuit breaker pattern for M-PESA API (stop sending requests if API is down)
+- [x] Create custom exception classes for domain errors (InvoiceNotFound, PaymentFailed, InvalidMSISDN)
+- [x] Add user-friendly error messages in bot responses (avoid exposing technical details)
+- [x] Write tests for retry logic in tests/test_resilience.py
+- [x] Test error scenarios: API timeouts, network errors, invalid responses
 
 **Testing Checkpoint:** Retries work correctly; rate limiting enforced; errors logged and handled gracefully.
 
 ---
 
-## Phase 14: Deployment Preparation (Day 7)
+## Phase 14: Deployment Preparation - Fly.io (Day 7)
 
-- [ ] Create Dockerfile for containerized deployment (Python 3.11+, install dependencies, expose port 8000)
-- [ ] Add docker-compose.yml for local development (includes app service and postgres service)
-- [ ] Create scripts/run.sh for running the application with uvicorn (includes environment variable loading)
-- [ ] Write deployment runbook in docs/RUNBOOK.md (includes setup steps, environment variables, database migrations, health checks)
-- [ ] Document webhook URL setup for WhatsApp Business API configuration
-- [ ] Document M-PESA callback URL registration process
-- [ ] Add README.md with project overview, quick start guide, and links to documentation
-- [ ] Create .env.example with all required variables and example values (with placeholders for secrets)
-- [ ] Test Docker build and run locally
-- [ ] Test database migration in Docker container (alembic upgrade head)
-- [ ] Verify all webhooks work with ngrok or similar tunneling for local testing
-- [ ] Document SSL/TLS requirements for production webhooks (WhatsApp and M-PESA require HTTPS)
+**Deployment Target:** Fly.io with automatic HTTPS support
 
-**Testing Checkpoint:** Docker container builds and runs successfully; database migrations work; webhooks accessible.
+**Important Notes:**
+- M-PESA Daraja API requires HTTPS endpoints (ngrok no longer supported)
+- Fly.io provides automatic SSL certificates for all deployments
+- Testing webhooks requires deployment to Fly.io staging environment
+
+### Fly.io Deployment Tasks:
+
+- [x] Create Dockerfile for Fly.io deployment (Python 3.11+, install dependencies, expose port 8000)
+- [x] Create fly.toml configuration file for Fly.io app settings
+- [ ] Configure Fly.io app with secrets (fly secrets set for all environment variables)
+- [x] Create .dockerignore file to exclude unnecessary files from Docker build
+- [x] Add docker-compose.yml for local development only (app service and postgres service)
+- [x] Create scripts/run.sh for running the application with uvicorn (includes environment variable loading)
+- [x] Write deployment runbook in docs/RUNBOOK.md (includes Fly.io setup, secrets management, database migrations, health checks)
+- [x] Document webhook URL setup for WhatsApp Business API configuration (https://<app-name>.fly.dev/whatsapp/webhook)
+- [x] Document M-PESA callback URL registration process (https://<app-name>.fly.dev/payments/stk/callback)
+- [x] Add README.md with project overview, quick start guide, Fly.io deployment instructions
+- [x] Create .env.example with all required variables and example values (with placeholders for secrets)
+- [x] Test Docker build locally (docker build -t invoiceiq .)
+- [ ] Deploy to Fly.io staging environment (fly deploy)
+- [ ] Test database migrations on Fly.io (alembic upgrade head runs automatically on deploy)
+- [ ] Verify health checks work (https://<app-name>.fly.dev/healthz and /readyz)
+- [ ] Register webhook URLs with WhatsApp Business API using Fly.io HTTPS URL
+- [ ] Register M-PESA callback URL with Safaricom using Fly.io HTTPS URL
+- [ ] Test end-to-end webhook delivery (WhatsApp and M-PESA callbacks to Fly.io app)
+
+**Testing Checkpoint:** App deployed to Fly.io with HTTPS; database migrations work; WhatsApp and M-PESA webhooks receive callbacks successfully.
 
 ---
 

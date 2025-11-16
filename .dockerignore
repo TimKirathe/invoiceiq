@@ -1,0 +1,73 @@
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+*.cover
+.hypothesis/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+data.db
+test_sms.db
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation and context files
+context-for-agents/
+africas-talking-documentation-pages/
+daraja-documentation-pages/
+*.md
+!README.md
+
+# Note: We keep docs/ and alembic/ folders for the production build
+
+# Logs
+*.log
+logs/
+
+# Type checking and linting
+.mypy_cache/
+.ruff_cache/
+.pylint.d/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# OS files
+Thumbs.db
+.Spotlight-V100
+.Trashes
