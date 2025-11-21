@@ -215,3 +215,5 @@ africas-talking-documentation-pages
 context-for-agents/
 data.db
 test_sms.db
+examples/
+.github/
