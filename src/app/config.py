@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     mpesa_passkey: str
     mpesa_callback_url: str
     mpesa_environment: str = "sandbox"  # "sandbox" or "production"
+    mpesa_payment_type: str = "paybill"  # "paybill" or "till"
 
     # Database Configuration
     database_url: str

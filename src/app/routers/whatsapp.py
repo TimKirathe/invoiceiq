@@ -327,6 +327,7 @@ async def receive_webhook(
                     invoice_create = InvoiceCreate(
                         msisdn=invoice_data["phone"],
                         customer_name=invoice_data.get("name"),
+                        merchant_msisdn=sender,  # Merchant is the sender of the message
                         amount_cents=invoice_data["amount_cents"],
                         description=invoice_data["description"],
                     )
@@ -338,12 +339,18 @@ async def receive_webhook(
                     random_num = random.randint(1000, 9999)
                     invoice_id = f"INV-{timestamp}-{random_num}"
 
+                    # Calculate VAT (16% of total amount)
+                    # Total amount includes VAT, so VAT = (amount_cents * 16) / 116
+                    vat_amount = int((invoice_create.amount_cents * 16) / 116)
+
                     # Create invoice record
                     invoice = Invoice(
                         id=invoice_id,
                         customer_name=invoice_create.customer_name,
                         msisdn=invoice_create.msisdn,
+                        merchant_msisdn=invoice_create.merchant_msisdn,
                         amount_cents=invoice_create.amount_cents,
+                        vat_amount=vat_amount,
                         currency="KES",
                         description=invoice_create.description,
                         status="PENDING",

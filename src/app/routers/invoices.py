@@ -91,12 +91,18 @@ async def create_invoice(
         # Generate invoice ID
         invoice_id = generate_invoice_id()
 
+        # Calculate VAT (16% of total amount)
+        # Total amount includes VAT, so VAT = (amount_cents * 16) / 116
+        vat_amount = int((invoice_data.amount_cents * 16) / 116)
+
         # Create invoice record
         invoice = Invoice(
             id=invoice_id,
             customer_name=invoice_data.customer_name,
             msisdn=invoice_data.msisdn,
+            merchant_msisdn=invoice_data.merchant_msisdn,
             amount_cents=invoice_data.amount_cents,
+            vat_amount=vat_amount,
             currency="KES",  # Hardcoded for MVP
             description=invoice_data.description,
             status="PENDING",  # Initial status

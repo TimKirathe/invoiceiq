@@ -48,6 +48,7 @@ class Invoice(Base):
 
     # Invoice details
     amount_cents: Mapped[int] = mapped_column(nullable=False)
+    vat_amount: Mapped[int] = mapped_column(nullable=False, default=0)  # VAT in cents
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="KES")
     description: Mapped[str] = mapped_column(String(120), nullable=False)
 
