@@ -358,6 +358,32 @@ class WhatsAppService:
             amount_str = match.group(2).strip()
             description = match.group(3).strip()
 
+            # Validate amount is numeric and positive
+            try:
+                amount = int(amount_str)
+                if amount < 1:
+                    return {
+                        "command": "invoice",
+                        "params": {"error": "Amount must be at least 1 KES"},
+                    }
+            except ValueError:
+                return {
+                    "command": "invoice",
+                    "params": {"error": "Amount must be a number"},
+                }
+
+            # Validate description length
+            if len(description) < 3:
+                return {
+                    "command": "invoice",
+                    "params": {"error": "Description must be at least 3 characters"},
+                }
+            if len(description) > 120:
+                return {
+                    "command": "invoice",
+                    "params": {"error": "Description must not exceed 120 characters"},
+                }
+
             # Check if it's a phone number (starts with 254 and is numeric)
             if re.match(r"^2547\d{8}$", phone_or_name):
                 # It's a phone number
@@ -365,18 +391,16 @@ class WhatsAppService:
                     "command": "invoice",
                     "params": {
                         "phone": phone_or_name,
-                        "amount": int(amount_str),
+                        "amount": amount,
                         "description": description,
                     },
                 }
             else:
-                # It's a name
+                # It's a name - return error for MVP (name lookup not implemented)
                 return {
                     "command": "invoice",
                     "params": {
-                        "name": phone_or_name,
-                        "amount": int(amount_str),
-                        "description": description,
+                        "error": "For quick invoice, please use phone number format: invoice 2547XXXXXXXX <amount> <description>",
                     },
                 }
 
