@@ -542,6 +542,59 @@ async def handle_stk_callback(
 
             await db.commit()
 
+            # Notify merchant and customer of payment failure (Task 4.4)
+            try:
+                whatsapp_service = WhatsAppService()
+
+                # Get readable failure reason
+                failure_reasons = {
+                    1: "Insufficient balance",
+                    1032: "Cancelled by user",
+                    1037: "Timeout - user did not respond",
+                    2001: "Invalid phone number",
+                }
+                failure_reason = failure_reasons.get(
+                    result_code,
+                    f"Payment failed (code {result_code})"
+                )
+
+                # Notify merchant
+                merchant_message = (
+                    f"Payment failed for invoice {invoice.id}\n"
+                    f"Customer: {invoice.msisdn}\n"
+                    f"Reason: {failure_reason}"
+                )
+                await whatsapp_service.send_message(
+                    invoice.merchant_msisdn,
+                    merchant_message
+                )
+
+                # Notify customer
+                customer_message = (
+                    f"Payment for invoice {invoice.id} was not completed.\n"
+                    f"Reason: {failure_reason}\n"
+                    f"You can try again by clicking the Pay button in the invoice message."
+                )
+                await whatsapp_service.send_message(
+                    invoice.msisdn,
+                    customer_message
+                )
+
+                logger.info(
+                    "Payment failure notifications sent",
+                    extra={"invoice_id": invoice.id},
+                )
+
+            except Exception as notify_error:
+                logger.error(
+                    "Failed to send payment failure notifications",
+                    extra={
+                        "error": str(notify_error),
+                        "invoice_id": invoice.id,
+                    },
+                    exc_info=True,
+                )
+
         return success_response
 
     except Exception as e:
