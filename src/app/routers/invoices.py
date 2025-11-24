@@ -9,12 +9,11 @@ import random
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from supabase import Client
 
-from ..db import get_db
-from ..models import Invoice
+from ..db import get_supabase
 from ..schemas import InvoiceCreate, InvoiceResponse
 from ..services.whatsapp import WhatsAppService
 from ..utils.logging import get_logger
@@ -47,10 +46,10 @@ def generate_invoice_id() -> str:
 
 
 @router.get("/{invoice_id}", response_model=InvoiceResponse)
-async def get_invoice(
+def get_invoice(
     invoice_id: str,
-    db: AsyncSession = Depends(get_db),
-) -> Invoice:
+    supabase: Client = Depends(get_supabase),
+) -> dict:
     """
     Get invoice details by ID.
 
@@ -59,7 +58,7 @@ async def get_invoice(
 
     Args:
         invoice_id: Invoice ID
-        db: Database session
+        supabase: Supabase client
 
     Returns:
         Invoice details
@@ -67,28 +66,40 @@ async def get_invoice(
     Raises:
         HTTPException: 404 if invoice not found
     """
-    from sqlalchemy import select
+    try:
+        response = supabase.table("invoices").select("*").eq("id", invoice_id).execute()
 
-    invoice_stmt = select(Invoice).where(Invoice.id == invoice_id)
-    invoice_result = await db.execute(invoice_stmt)
-    invoice = invoice_result.scalar_one_or_none()
+        if not response.data:
+            logger.warning(
+                "Invoice not found for viewing",
+                extra={"invoice_id": invoice_id},
+            )
+            raise HTTPException(
+                status_code=404,
+                detail="Invoice not found"
+            )
 
-    if not invoice:
-        logger.warning(
-            "Invoice not found for viewing",
-            extra={"invoice_id": invoice_id},
+        invoice = response.data[0]
+
+        logger.info(
+            "Invoice viewed",
+            extra={"invoice_id": invoice_id, "status": invoice["status"]},
+        )
+
+        return invoice
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "Error fetching invoice",
+            extra={"invoice_id": invoice_id, "error": str(e)},
+            exc_info=True,
         )
         raise HTTPException(
-            status_code=404,
-            detail="Invoice not found"
+            status_code=500,
+            detail="Database error"
         )
-
-    logger.info(
-        "Invoice viewed",
-        extra={"invoice_id": invoice_id, "status": invoice.status},
-    )
-
-    return invoice
 
 
 @router.post("", response_model=InvoiceResponse, status_code=status.HTTP_201_CREATED)
@@ -96,8 +107,8 @@ async def get_invoice(
 async def create_invoice(
     request: Request,
     invoice_data: InvoiceCreate,
-    db: AsyncSession = Depends(get_db),
-) -> Invoice:
+    supabase: Client = Depends(get_supabase),
+) -> dict:
     """
     Create a new invoice and send it to the customer via WhatsApp.
 
@@ -113,7 +124,7 @@ async def create_invoice(
     Args:
         request: The HTTP request (required for rate limiting)
         invoice_data: Invoice creation data (customer info, amount, description)
-        db: Database session dependency
+        supabase: Supabase client
 
     Returns:
         The created invoice with current status
@@ -141,31 +152,30 @@ async def create_invoice(
         vat_amount = int((invoice_data.amount_cents * 16) / 116)
 
         # Create invoice record
-        invoice = Invoice(
-            id=invoice_id,
-            customer_name=invoice_data.customer_name,
-            msisdn=invoice_data.msisdn,
-            merchant_msisdn=invoice_data.merchant_msisdn,
-            amount_cents=invoice_data.amount_cents,
-            vat_amount=vat_amount,
-            currency="KES",  # Hardcoded for MVP
-            description=invoice_data.description,
-            status="PENDING",  # Initial status
-            pay_ref=None,  # Will be set in Phase 7
-            pay_link=None,  # Will be set in Phase 7
-        )
+        invoice_data_dict = {
+            "id": invoice_id,
+            "customer_name": invoice_data.customer_name,
+            "msisdn": invoice_data.msisdn,
+            "merchant_msisdn": invoice_data.merchant_msisdn,
+            "amount_cents": invoice_data.amount_cents,
+            "vat_amount": vat_amount,
+            "currency": "KES",  # Hardcoded for MVP
+            "description": invoice_data.description,
+            "status": "PENDING",  # Initial status
+            "pay_ref": None,  # Will be set in Phase 7
+            "pay_link": None,  # Will be set in Phase 7
+        }
 
         # Add to database
-        db.add(invoice)
-        await db.commit()
-        await db.refresh(invoice)
+        response = supabase.table("invoices").insert(invoice_data_dict).execute()
+        invoice = response.data[0]
 
         logger.info(
             "Invoice created in database",
             extra={
-                "invoice_id": invoice.id,
-                "status": invoice.status,
-                "msisdn": invoice.msisdn,
+                "invoice_id": invoice["id"],
+                "status": invoice["status"],
+                "msisdn": invoice["msisdn"],
             },
         )
 
@@ -174,34 +184,37 @@ async def create_invoice(
 
         # Send invoice to customer
         send_success = await whatsapp_service.send_invoice_to_customer(
-            invoice_id=invoice.id,
-            customer_msisdn=invoice.msisdn,
-            customer_name=invoice.customer_name,
-            amount_cents=invoice.amount_cents,
-            description=invoice.description,
-            db_session=db,
+            invoice_id=invoice["id"],
+            customer_msisdn=invoice["msisdn"],
+            customer_name=invoice["customer_name"],
+            amount_cents=invoice["amount_cents"],
+            description=invoice["description"],
+            db_session=supabase,
         )
 
         # Update invoice status based on send result
         if send_success:
-            invoice.status = "SENT"
-            await db.commit()
-            await db.refresh(invoice)
+            update_response = (
+                supabase.table("invoices")
+                .update({"status": "SENT"})
+                .eq("id", invoice_id)
+                .execute()
+            )
+            invoice = update_response.data[0]
 
             logger.info(
                 "Invoice sent successfully and status updated",
-                extra={"invoice_id": invoice.id, "status": invoice.status},
+                extra={"invoice_id": invoice["id"], "status": invoice["status"]},
             )
         else:
             logger.warning(
                 "Invoice created but failed to send to customer - status remains PENDING",
-                extra={"invoice_id": invoice.id, "msisdn": invoice.msisdn},
+                extra={"invoice_id": invoice["id"], "msisdn": invoice["msisdn"]},
             )
 
         return invoice
 
     except Exception as e:
-        await db.rollback()
         logger.error(
             "Failed to create invoice",
             extra={

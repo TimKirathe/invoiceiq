@@ -16,10 +16,9 @@ from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
-from sqlalchemy import text
 
 from .config import settings
-from .db import create_tables, engine, get_db
+from .db import get_supabase
 from .routers import invoice_view, invoices, payments, sms, whatsapp
 from .services.metrics import (
     get_average_payment_time,
@@ -43,7 +42,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Application lifespan context manager.
 
     Handles startup and shutdown events for the application.
-    Creates database tables on startup.
+    With Supabase, no database initialization is needed on startup.
 
     Args:
         app: The FastAPI application instance
@@ -51,17 +50,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Yields:
         None
     """
-    # Startup: Create database tables
+    # Startup
     logger.info("Application starting up")
-    await create_tables()
-    logger.info("Database tables created/verified")
+    logger.info("Using Supabase for database operations")
 
     yield
 
-    # Shutdown: Clean up resources
+    # Shutdown
     logger.info("Application shutting down")
-    await engine.dispose()
-    logger.info("Database connections closed")
 
 
 # Initialize FastAPI application
@@ -229,12 +225,12 @@ async def health_check() -> dict[str, str]:
 
 
 @app.get("/readyz", tags=["health"])
-async def readiness_check() -> dict[str, str]:
+async def readiness_check(supabase=Depends(get_supabase)) -> dict[str, str]:
     """
     Readiness check endpoint.
 
     Verifies that the application is ready to accept requests by checking
-    the database connection.
+    the Supabase connection.
 
     Returns:
         Dictionary with status and database connection info
@@ -243,19 +239,13 @@ async def readiness_check() -> dict[str, str]:
         HTTPException: 503 if database is not accessible
     """
     try:
-        # Test database connection
-        async for db in get_db():
-            await db.execute(text("SELECT 1"))
-            logger.info("Readiness check passed - database connected")
-            return {"status": "ready", "database": "connected"}
-        # This should never be reached, but mypy needs it
-        raise HTTPException(
-            status_code=503,
-            detail="Database connection unavailable",
-        )
+        # Test Supabase connection with a simple query
+        result = supabase.table("invoices").select("id").limit(1).execute()
+        logger.info("Readiness check passed - Supabase connected")
+        return {"status": "ready", "database": "connected"}
     except Exception as e:
         logger.error(
-            "Readiness check failed - database connection error",
+            "Readiness check failed - Supabase connection error",
             extra={"error": str(e)},
             exc_info=True,
         )
@@ -267,7 +257,7 @@ async def readiness_check() -> dict[str, str]:
 
 # Stats endpoint
 @app.get("/stats/summary", tags=["stats"])
-async def stats_summary(db=Depends(get_db)) -> dict:
+async def stats_summary(supabase=Depends(get_supabase)) -> dict:
     """
     Get summary statistics for business metrics.
 
@@ -277,7 +267,7 @@ async def stats_summary(db=Depends(get_db)) -> dict:
     - Average payment time in seconds (time from payment initiation to completion)
 
     Args:
-        db: Database session dependency
+        supabase: Supabase client dependency
 
     Returns:
         Dictionary with invoice statistics, conversion rate, and average payment time
@@ -287,9 +277,9 @@ async def stats_summary(db=Depends(get_db)) -> dict:
     """
     try:
         # Get all metrics
-        invoice_stats = await get_invoice_stats(db)
-        conversion_rate = await get_conversion_rate(db)
-        avg_payment_time = await get_average_payment_time(db)
+        invoice_stats = await get_invoice_stats(supabase)
+        conversion_rate = await get_conversion_rate(supabase)
+        avg_payment_time = await get_average_payment_time(supabase)
 
         logger.info(
             "Stats summary generated",

@@ -9,12 +9,10 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from supabase import Client
 
 from ..config import settings
-from ..db import get_db
-from ..models import Invoice, Payment
+from ..db import get_supabase
 from ..services.mpesa import MPesaService
 from ..utils.logging import get_logger
 
@@ -34,7 +32,7 @@ def get_mpesa_service() -> MPesaService:
 
 
 def generate_invoice_html(
-    invoice: Invoice,
+    invoice: dict,
     payment_type: str,
     shortcode: str,
 ) -> str:
@@ -42,7 +40,7 @@ def generate_invoice_html(
     Generate HTML for invoice display.
 
     Args:
-        invoice: Invoice object from database
+        invoice: Invoice dict from database
         payment_type: "paybill" or "till"
         shortcode: M-PESA shortcode/business number
 
@@ -50,29 +48,29 @@ def generate_invoice_html(
         HTML string for invoice display
     """
     # Calculate amounts
-    total_amount = invoice.amount_cents / 100  # Convert from cents to KES
-    vat_amount = invoice.vat_amount / 100  # Convert from cents to KES
+    total_amount = invoice["amount_cents"] / 100  # Convert from cents to KES
+    vat_amount = invoice["vat_amount"] / 100  # Convert from cents to KES
     subtotal = total_amount - vat_amount
 
     # Determine payment details text
     if payment_type.lower() == "paybill":
-        payment_details = f"Paybill: {shortcode}<br>Account: {invoice.id}"
+        payment_details = f"Paybill: {shortcode}<br>Account: {invoice['id']}"
     else:  # till
         payment_details = f"Till Number: {shortcode}"
 
     # Get merchant name (use merchant_msisdn as fallback)
-    merchant_name = invoice.merchant_msisdn
+    merchant_name = invoice["merchant_msisdn"]
 
     # Determine button state based on invoice status
     button_disabled = ""
     button_text = "Pay with M-PESA"
 
-    if invoice.status == "PAID":
+    if invoice["status"] == "PAID":
         button_disabled = "disabled"
         button_text = "Already Paid"
-    elif invoice.status in ["CANCELLED", "FAILED"]:
+    elif invoice["status"] in ["CANCELLED", "FAILED"]:
         button_disabled = "disabled"
-        button_text = f"Invoice {invoice.status.title()}"
+        button_text = f"Invoice {invoice['status'].title()}"
 
     html = f"""
 <!DOCTYPE html>
@@ -292,9 +290,9 @@ def generate_invoice_html(
         <div class="invoice-card">
             <div class="invoice-header">
                 <div class="invoice-title">Invoice</div>
-                <div class="invoice-id">{invoice.id}</div>
+                <div class="invoice-id">{invoice['id']}</div>
                 <div style="margin-top: 12px;">
-                    <span class="status-badge status-{invoice.status.lower()}">{invoice.status}</span>
+                    <span class="status-badge status-{invoice['status'].lower()}">{invoice['status']}</span>
                 </div>
             </div>
 
@@ -305,7 +303,7 @@ def generate_invoice_html(
 
             <div class="invoice-section">
                 <div class="section-label">Invoice For</div>
-                <div class="section-value">{invoice.description}</div>
+                <div class="section-value">{invoice['description']}</div>
             </div>
 
             <div class="amount-breakdown">
@@ -351,7 +349,12 @@ def generate_invoice_html(
 </html>
     """
 
-    return html
+    return html.format(
+        invoice=invoice,
+        invoice_id=invoice['id'],
+        invoice_status=invoice['status'],
+        invoice_description=invoice['description']
+    )
 
 
 def generate_payment_success_html(invoice_id: str) -> str:
@@ -607,16 +610,16 @@ def generate_error_html(invoice_id: str, error_message: str) -> str:
 
 
 @router.get("/{invoice_id}", response_class=HTMLResponse)
-async def view_invoice(
+def view_invoice(
     invoice_id: str,
-    db: AsyncSession = Depends(get_db),
+    supabase: Client = Depends(get_supabase),
 ) -> str:
     """
     Display invoice details in HTML format with payment button.
 
     Args:
         invoice_id: Invoice ID to display
-        db: Database session
+        supabase: Supabase client
 
     Returns:
         HTML page with invoice details and payment button
@@ -629,41 +632,52 @@ async def view_invoice(
         extra={"invoice_id": invoice_id},
     )
 
-    # Lookup invoice in database
-    invoice_stmt = select(Invoice).where(Invoice.id == invoice_id)
-    invoice_result = await db.execute(invoice_stmt)
-    invoice = invoice_result.scalar_one_or_none()
+    try:
+        # Lookup invoice in database
+        response = supabase.table("invoices").select("*").eq("id", invoice_id).execute()
 
-    if not invoice:
-        logger.warning(
-            "Invoice not found for view",
-            extra={"invoice_id": invoice_id},
+        if not response.data:
+            logger.warning(
+                "Invoice not found for view",
+                extra={"invoice_id": invoice_id},
+            )
+            raise HTTPException(status_code=404, detail="Invoice not found")
+
+        invoice = response.data[0]
+
+        logger.info(
+            "Displaying invoice",
+            extra={
+                "invoice_id": invoice["id"],
+                "status": invoice["status"],
+                "amount_cents": invoice["amount_cents"],
+            },
         )
-        raise HTTPException(status_code=404, detail="Invoice not found")
 
-    logger.info(
-        "Displaying invoice",
-        extra={
-            "invoice_id": invoice.id,
-            "status": invoice.status,
-            "amount_cents": invoice.amount_cents,
-        },
-    )
+        # Generate and return HTML
+        html = generate_invoice_html(
+            invoice=invoice,
+            payment_type=settings.mpesa_payment_type,
+            shortcode=settings.mpesa_shortcode,
+        )
 
-    # Generate and return HTML
-    html = generate_invoice_html(
-        invoice=invoice,
-        payment_type=settings.mpesa_payment_type,
-        shortcode=settings.mpesa_shortcode,
-    )
+        return html
 
-    return html
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "Error fetching invoice",
+            extra={"invoice_id": invoice_id, "error": str(e)},
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.get("/pay/{invoice_id}", response_class=HTMLResponse)
 async def initiate_payment(
     invoice_id: str,
-    db: AsyncSession = Depends(get_db),
+    supabase: Client = Depends(get_supabase),
     mpesa_service: MPesaService = Depends(get_mpesa_service),
 ) -> str:
     """
@@ -671,7 +685,7 @@ async def initiate_payment(
 
     Args:
         invoice_id: Invoice ID to pay
-        db: Database session
+        supabase: Supabase client
         mpesa_service: M-PESA service instance
 
     Returns:
@@ -685,145 +699,154 @@ async def initiate_payment(
         extra={"invoice_id": invoice_id},
     )
 
-    # Lookup invoice
-    invoice_stmt = select(Invoice).where(Invoice.id == invoice_id)
-    invoice_result = await db.execute(invoice_stmt)
-    invoice = invoice_result.scalar_one_or_none()
-
-    if not invoice:
-        logger.warning(
-            "Invoice not found for payment",
-            extra={"invoice_id": invoice_id},
-        )
-        raise HTTPException(status_code=404, detail="Invoice not found")
-
-    # Check invoice status
-    if invoice.status == "PAID":
-        logger.info(
-            "Invoice already paid",
-            extra={"invoice_id": invoice_id},
-        )
-        return generate_error_html(
-            invoice_id=invoice_id,
-            error_message="This invoice has already been paid.",
-        )
-
-    if invoice.status in ["CANCELLED", "FAILED"]:
-        logger.info(
-            "Invoice cannot be paid due to status",
-            extra={"invoice_id": invoice_id, "status": invoice.status},
-        )
-        return generate_error_html(
-            invoice_id=invoice_id,
-            error_message=f"This invoice is {invoice.status.lower()} and cannot be paid.",
-        )
-
-    # Check if payment already exists for this invoice
-    existing_payment_stmt = select(Payment).where(
-        Payment.invoice_id == invoice_id,
-        Payment.status == "INITIATED",
-    )
-    existing_payment_result = await db.execute(existing_payment_stmt)
-    existing_payment = existing_payment_result.scalar_one_or_none()
-
-    if existing_payment:
-        logger.info(
-            "Payment already initiated for this invoice",
-            extra={"invoice_id": invoice_id, "payment_id": existing_payment.id},
-        )
-        return generate_payment_success_html(invoice_id=invoice_id)
-
-    # Create payment record and initiate STK Push
     try:
+        # Lookup invoice
+        response = supabase.table("invoices").select("*").eq("id", invoice_id).execute()
+
+        if not response.data:
+            logger.warning(
+                "Invoice not found for payment",
+                extra={"invoice_id": invoice_id},
+            )
+            raise HTTPException(status_code=404, detail="Invoice not found")
+
+        invoice = response.data[0]
+
+        # Check invoice status
+        if invoice["status"] == "PAID":
+            logger.info(
+                "Invoice already paid",
+                extra={"invoice_id": invoice_id},
+            )
+            return generate_error_html(
+                invoice_id=invoice_id,
+                error_message="This invoice has already been paid.",
+            )
+
+        if invoice["status"] in ["CANCELLED", "FAILED"]:
+            logger.info(
+                "Invoice cannot be paid due to status",
+                extra={"invoice_id": invoice_id, "status": invoice["status"]},
+            )
+            return generate_error_html(
+                invoice_id=invoice_id,
+                error_message=f"This invoice is {invoice['status'].lower()} and cannot be paid.",
+            )
+
+        # Check if payment already exists for this invoice
+        payment_response = (
+            supabase.table("payments")
+            .select("*")
+            .eq("invoice_id", invoice_id)
+            .eq("status", "INITIATED")
+            .execute()
+        )
+
+        if payment_response.data:
+            existing_payment = payment_response.data[0]
+            logger.info(
+                "Payment already initiated for this invoice",
+                extra={"invoice_id": invoice_id, "payment_id": existing_payment["id"]},
+            )
+            return generate_payment_success_html(invoice_id=invoice_id)
+
+        # Create payment record and initiate STK Push
         # Generate idempotency key
         idempotency_key = f"{invoice_id}-{str(uuid4())[:8]}"
 
         # Convert amount from cents to whole KES
-        amount_kes = round(invoice.amount_cents / 100)
+        amount_kes = round(invoice["amount_cents"] / 100)
 
         logger.info(
             "Creating payment record and initiating STK Push",
             extra={
-                "invoice_id": invoice.id,
-                "amount_cents": invoice.amount_cents,
+                "invoice_id": invoice["id"],
+                "amount_cents": invoice["amount_cents"],
                 "amount_kes": amount_kes,
-                "customer_msisdn": invoice.msisdn,
+                "customer_msisdn": invoice["msisdn"],
             },
         )
 
         # Create Payment record with status INITIATED
-        payment = Payment(
-            id=str(uuid4()),
-            invoice_id=invoice.id,
-            method="MPESA_STK",
-            status="INITIATED",
-            amount_cents=invoice.amount_cents,
-            idempotency_key=idempotency_key,
-            raw_request={},
-            raw_callback=None,
-            mpesa_receipt=None,
-        )
+        payment_id = str(uuid4())
+        payment_data = {
+            "id": payment_id,
+            "invoice_id": invoice["id"],
+            "method": "MPESA_STK",
+            "status": "INITIATED",
+            "amount_cents": invoice["amount_cents"],
+            "idempotency_key": idempotency_key,
+            "raw_request": {},
+            "raw_callback": None,
+            "mpesa_receipt": None,
+        }
 
-        db.add(payment)
-        await db.commit()
-        await db.refresh(payment)
+        create_payment_response = supabase.table("payments").insert(payment_data).execute()
+        payment = create_payment_response.data[0]
 
         logger.info(
             "Payment record created",
-            extra={"payment_id": payment.id, "status": payment.status},
+            extra={"payment_id": payment["id"], "status": payment["status"]},
         )
 
         # Prepare STK Push request
-        account_reference = invoice.id[:20]  # Max 20 characters
-        transaction_desc = invoice.description[:20]  # Max 20 characters
+        account_reference = invoice["id"][:20]  # Max 20 characters
+        transaction_desc = invoice["description"][:20]  # Max 20 characters
 
         # Initiate STK Push
         stk_response = await mpesa_service.initiate_stk_push(
-            phone_number=invoice.msisdn,
+            phone_number=invoice["msisdn"],
             amount=amount_kes,
             account_reference=account_reference,
             transaction_desc=transaction_desc,
         )
 
         # Update payment with raw request and response
-        payment.raw_request = {
-            "phone_number": invoice.msisdn,
-            "amount": amount_kes,
-            "account_reference": account_reference,
-            "transaction_desc": transaction_desc,
-            "stk_response": stk_response,
+        update_data = {
+            "raw_request": {
+                "phone_number": invoice["msisdn"],
+                "amount": amount_kes,
+                "account_reference": account_reference,
+                "transaction_desc": transaction_desc,
+                "stk_response": stk_response,
+            },
+            "checkout_request_id": stk_response.get("CheckoutRequestID"),
+            "merchant_request_id": stk_response.get("MerchantRequestID"),
         }
 
-        # Store CheckoutRequestID and MerchantRequestID for callback matching
-        payment.checkout_request_id = stk_response.get("CheckoutRequestID")
-        payment.merchant_request_id = stk_response.get("MerchantRequestID")
-
-        await db.commit()
-        await db.refresh(payment)
+        supabase.table("payments").update(update_data).eq("id", payment_id).execute()
 
         logger.info(
             "STK Push initiated successfully",
             extra={
-                "payment_id": payment.id,
-                "invoice_id": invoice.id,
+                "payment_id": payment["id"],
+                "invoice_id": invoice["id"],
                 "stk_response": stk_response,
             },
         )
 
         return generate_payment_success_html(invoice_id=invoice_id)
 
+    except HTTPException:
+        raise
     except Exception as e:
         # Update payment status to FAILED if it was created
         if "payment" in locals():
-            payment.status = "FAILED"
-            payment.raw_request = {
-                "phone_number": invoice.msisdn,
-                "amount": amount_kes,
-                "account_reference": account_reference,
-                "transaction_desc": transaction_desc,
-                "error": str(e),
-            }
-            await db.commit()
+            try:
+                supabase.table("payments").update(
+                    {
+                        "status": "FAILED",
+                        "raw_request": {
+                            "phone_number": invoice["msisdn"],
+                            "amount": amount_kes,
+                            "account_reference": account_reference,
+                            "transaction_desc": transaction_desc,
+                            "error": str(e),
+                        },
+                    }
+                ).eq("id", payment["id"]).execute()
+            except Exception:
+                pass  # Ignore errors during error handling
 
         logger.error(
             "Failed to initiate STK Push",

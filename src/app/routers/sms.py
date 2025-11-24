@@ -9,10 +9,9 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
+from supabase import Client
 
-from ..db import get_db
-from ..models import MessageLog
+from ..db import get_supabase
 from ..services.sms import SMSService
 from ..utils.logging import get_logger
 
@@ -24,9 +23,9 @@ router = APIRouter()
 
 
 @router.post("/inbound")
-async def receive_inbound_sms(
+def receive_inbound_sms(
     payload: dict[str, Any],
-    db: AsyncSession = Depends(get_db),
+    supabase: Client = Depends(get_supabase),
 ) -> dict[str, str]:
     """
     Receive inbound SMS messages from Africa's Talking.
@@ -37,7 +36,7 @@ async def receive_inbound_sms(
 
     Args:
         payload: The callback payload from Africa's Talking
-        db: Database session dependency
+        supabase: Supabase client
 
     Returns:
         Dictionary with status: received
@@ -143,23 +142,24 @@ async def receive_inbound_sms(
 
         # Create MessageLog entry for inbound SMS (metadata only - privacy-first)
         try:
-            message_log = MessageLog(
-                invoice_id=None,  # No invoice context yet
-                channel="SMS",
-                direction="IN",
-                event="sms_received",
-                payload={
+            message_log_data = {
+                "invoice_id": None,  # No invoice context yet
+                "channel": "SMS",
+                "direction": "IN",
+                "event": "sms_received",
+                "payload": {
                     "message_id": message_id,
                     "command": command,
                     "timestamp": datetime.utcnow().isoformat(),
                 },
-            )
-            db.add(message_log)
-            await db.commit()
+            }
+
+            response = supabase.table("message_log").insert(message_log_data).execute()
+            message_log = response.data[0]
 
             logger.info(
                 "Inbound SMS logged to database",
-                extra={"message_log_id": message_log.id, "from": sender},
+                extra={"message_log_id": message_log["id"], "from": sender},
             )
 
         except Exception as e:
@@ -169,7 +169,6 @@ async def receive_inbound_sms(
                 exc_info=True,
             )
             # Don't fail the webhook - Africa's Talking expects 200 OK
-            await db.rollback()
 
     else:
         logger.warning(
@@ -181,9 +180,9 @@ async def receive_inbound_sms(
 
 
 @router.post("/status")
-async def receive_delivery_status(
+def receive_delivery_status(
     payload: dict[str, Any],
-    db: AsyncSession = Depends(get_db),
+    supabase: Client = Depends(get_supabase),
 ) -> dict[str, str]:
     """
     Receive delivery receipt callbacks from Africa's Talking.
@@ -193,7 +192,7 @@ async def receive_delivery_status(
 
     Args:
         payload: The delivery receipt payload from Africa's Talking
-        db: Database session dependency
+        supabase: Supabase client
 
     Returns:
         Dictionary with status: received
@@ -233,24 +232,25 @@ async def receive_delivery_status(
 
         # Create MessageLog entry for delivery status (metadata only - privacy-first)
         try:
-            message_log = MessageLog(
-                invoice_id=None,  # No invoice context (could be linked in future)
-                channel="SMS",
-                direction="OUT",
-                event=f"delivery_{status.lower()}" if status else "delivery_status",
-                payload={
+            message_log_data = {
+                "invoice_id": None,  # No invoice context (could be linked in future)
+                "channel": "SMS",
+                "direction": "OUT",
+                "event": f"delivery_{status.lower()}" if status else "delivery_status",
+                "payload": {
                     "message_id": message_id,
                     "status": status,
                     "timestamp": datetime.utcnow().isoformat(),
                 },
-            )
-            db.add(message_log)
-            await db.commit()
+            }
+
+            response = supabase.table("message_log").insert(message_log_data).execute()
+            message_log = response.data[0]
 
             logger.info(
                 "Delivery receipt logged to database",
                 extra={
-                    "message_log_id": message_log.id,
+                    "message_log_id": message_log["id"],
                     "status": status,
                 },
             )
@@ -262,7 +262,6 @@ async def receive_delivery_status(
                 exc_info=True,
             )
             # Don't fail the webhook - Africa's Talking expects 200 OK
-            await db.rollback()
 
     else:
         logger.warning(

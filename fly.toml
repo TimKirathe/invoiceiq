@@ -8,9 +8,6 @@ primary_region = 'jnb'
 
 [build]
 
-[deploy]
-  release_command = 'alembic upgrade head'
-
 [env]
   APP_NAME = 'InvoiceIQ'
   DEBUG = 'false'

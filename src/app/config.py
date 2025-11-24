@@ -38,8 +38,9 @@ class Settings(BaseSettings):
     mpesa_environment: str = "sandbox"  # "sandbox" or "production"
     mpesa_payment_type: str = "paybill"  # "paybill" or "till"
 
-    # Database Configuration
-    database_url: str
+    # Supabase Configuration
+    supabase_url: str
+    supabase_secret_key: str
 
     # Application Configuration
     app_name: str = "InvoiceIQ"

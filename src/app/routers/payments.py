@@ -9,12 +9,9 @@ from typing import Any, Dict, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..db import get_db
-from ..models import Invoice, Payment
+from ..db import get_supabase_client
 from ..schemas import PaymentCreate, PaymentResponse
 from ..services.idempotency import check_callback_processed
 from ..services.mpesa import MPesaService
@@ -164,7 +161,6 @@ def get_mpesa_service() -> MPesaService:
 @router.post("/stk/initiate", response_model=PaymentResponse, status_code=200)
 async def initiate_stk_push(
     payment_request: PaymentCreate,
-    db: AsyncSession = Depends(get_db),
     mpesa_service: MPesaService = Depends(get_mpesa_service),
 ) -> PaymentResponse:
     """
@@ -176,7 +172,6 @@ async def initiate_stk_push(
 
     Args:
         payment_request: Payment creation request with invoice_id and idempotency_key
-        db: Database session
         mpesa_service: M-PESA service instance
 
     Returns:
@@ -187,6 +182,8 @@ async def initiate_stk_push(
         HTTPException 400: If invoice status is not "SENT"
         HTTPException 500: If STK Push initiation fails
     """
+    supabase = get_supabase_client()
+
     logger.info(
         "Received STK Push initiate request",
         extra={
@@ -196,26 +193,32 @@ async def initiate_stk_push(
     )
 
     # Check idempotency: if payment with same key exists, return cached response
-    existing_payment_stmt = select(Payment).where(
-        Payment.idempotency_key == payment_request.idempotency_key
+    existing_payment_response = (
+        supabase.table("payments")
+        .select("*")
+        .eq("idempotency_key", payment_request.idempotency_key)
+        .execute()
     )
-    existing_payment_result = await db.execute(existing_payment_stmt)
-    existing_payment = existing_payment_result.scalar_one_or_none()
+    existing_payment = existing_payment_response.data[0] if existing_payment_response.data else None
 
     if existing_payment:
         logger.info(
             "Duplicate STK Push request detected - returning cached response",
             extra={
                 "idempotency_key": payment_request.idempotency_key,
-                "payment_id": existing_payment.id,
+                "payment_id": existing_payment["id"],
             },
         )
         return PaymentResponse.model_validate(existing_payment)
 
     # Retrieve invoice
-    invoice_stmt = select(Invoice).where(Invoice.id == payment_request.invoice_id)
-    invoice_result = await db.execute(invoice_stmt)
-    invoice = invoice_result.scalar_one_or_none()
+    invoice_response = (
+        supabase.table("invoices")
+        .select("*")
+        .eq("id", payment_request.invoice_id)
+        .execute()
+    )
+    invoice = invoice_response.data[0] if invoice_response.data else None
 
     if not invoice:
         logger.warning(
@@ -225,89 +228,88 @@ async def initiate_stk_push(
         raise HTTPException(status_code=404, detail="Invoice not found")
 
     # Validate invoice status
-    if invoice.status != "SENT":
+    if invoice["status"] != "SENT":
         logger.warning(
             "Invalid invoice status for payment",
             extra={
-                "invoice_id": invoice.id,
-                "status": invoice.status,
+                "invoice_id": invoice["id"],
+                "status": invoice["status"],
                 "expected_status": "SENT",
             },
         )
         raise HTTPException(
             status_code=400,
-            detail=f"Invoice status must be SENT (current: {invoice.status})",
+            detail=f"Invoice status must be SENT (current: {invoice['status']})",
         )
 
     # Convert amount from cents to whole KES
-    amount_kes = round(invoice.amount_cents / 100)
+    amount_kes = round(invoice["amount_cents"] / 100)
 
     logger.info(
         "Creating payment record",
         extra={
-            "invoice_id": invoice.id,
-            "amount_cents": invoice.amount_cents,
+            "invoice_id": invoice["id"],
+            "amount_cents": invoice["amount_cents"],
             "amount_kes": amount_kes,
-            "customer_msisdn": invoice.msisdn,
+            "customer_msisdn": invoice["msisdn"],
         },
     )
 
     # Create Payment record with status INITIATED
-    payment = Payment(
-        id=str(uuid4()),
-        invoice_id=invoice.id,
-        method="MPESA_STK",
-        status="INITIATED",
-        amount_cents=invoice.amount_cents,
-        idempotency_key=payment_request.idempotency_key,
-        raw_request={},  # Will be populated before STK call
-        raw_callback=None,
-        mpesa_receipt=None,
-    )
+    payment_data = {
+        "id": str(uuid4()),
+        "invoice_id": invoice["id"],
+        "method": "MPESA_STK",
+        "status": "INITIATED",
+        "amount_cents": invoice["amount_cents"],
+        "idempotency_key": payment_request.idempotency_key,
+        "raw_request": {},  # Will be populated before STK call
+        "raw_callback": None,
+        "mpesa_receipt": None,
+    }
 
-    db.add(payment)
-    await db.commit()
-    await db.refresh(payment)
+    payment_response = supabase.table("payments").insert(payment_data).execute()
+    payment = payment_response.data[0]
 
     logger.info(
         "Payment record created",
-        extra={"payment_id": payment.id, "status": payment.status},
+        extra={"payment_id": payment["id"], "status": payment["status"]},
     )
 
     # Prepare STK Push request
-    account_reference = invoice.id[:20]  # Max 20 characters
-    transaction_desc = invoice.description[:20]  # Max 20 characters
+    account_reference = invoice["id"][:20]  # Max 20 characters
+    transaction_desc = invoice["description"][:20]  # Max 20 characters
 
     try:
         # Initiate STK Push
         stk_response = await mpesa_service.initiate_stk_push(
-            phone_number=invoice.msisdn,
+            phone_number=invoice["msisdn"],
             amount=amount_kes,
             account_reference=account_reference,
             transaction_desc=transaction_desc,
         )
 
         # Update payment with raw request and response
-        payment.raw_request = {
-            "phone_number": invoice.msisdn,
-            "amount": amount_kes,
-            "account_reference": account_reference,
-            "transaction_desc": transaction_desc,
-            "stk_response": stk_response,
+        updated_payment_data = {
+            "raw_request": {
+                "phone_number": invoice["msisdn"],
+                "amount": amount_kes,
+                "account_reference": account_reference,
+                "transaction_desc": transaction_desc,
+                "stk_response": stk_response,
+            },
+            "checkout_request_id": stk_response.get("CheckoutRequestID"),
+            "merchant_request_id": stk_response.get("MerchantRequestID"),
         }
 
-        # Store CheckoutRequestID and MerchantRequestID for callback matching
-        payment.checkout_request_id = stk_response.get("CheckoutRequestID")
-        payment.merchant_request_id = stk_response.get("MerchantRequestID")
-
-        await db.commit()
-        await db.refresh(payment)
+        supabase.table("payments").update(updated_payment_data).eq("id", payment["id"]).execute()
+        payment.update(updated_payment_data)
 
         logger.info(
             "STK Push initiated successfully",
             extra={
-                "payment_id": payment.id,
-                "invoice_id": invoice.id,
+                "payment_id": payment["id"],
+                "invoice_id": invoice["id"],
                 "stk_response": stk_response,
             },
         )
@@ -316,22 +318,24 @@ async def initiate_stk_push(
 
     except Exception as e:
         # Update payment status to FAILED
-        payment.status = "FAILED"
-        payment.raw_request = {
-            "phone_number": invoice.msisdn,
-            "amount": amount_kes,
-            "account_reference": account_reference,
-            "transaction_desc": transaction_desc,
-            "error": str(e),
+        failed_payment_data = {
+            "status": "FAILED",
+            "raw_request": {
+                "phone_number": invoice["msisdn"],
+                "amount": amount_kes,
+                "account_reference": account_reference,
+                "transaction_desc": transaction_desc,
+                "error": str(e),
+            },
         }
 
-        await db.commit()
+        supabase.table("payments").update(failed_payment_data).eq("id", payment["id"]).execute()
 
         logger.error(
             "STK Push initiation failed",
             extra={
-                "payment_id": payment.id,
-                "invoice_id": invoice.id,
+                "payment_id": payment["id"],
+                "invoice_id": invoice["id"],
                 "error": str(e),
             },
             exc_info=True,
@@ -346,7 +350,6 @@ async def initiate_stk_push(
 @router.post("/stk/callback", status_code=200)
 async def handle_stk_callback(
     request: Request,
-    db: AsyncSession = Depends(get_db),
 ) -> Dict[str, str]:
     """
     Handle M-PESA STK Push callback.
@@ -358,7 +361,6 @@ async def handle_stk_callback(
 
     Args:
         request: FastAPI request object containing callback payload
-        db: Database session
 
     Returns:
         Success response dict: {"ResultCode": "0", "ResultDesc": "Accepted"}
@@ -396,6 +398,8 @@ async def handle_stk_callback(
                 }
             }
     """
+    supabase = get_supabase_client()
+
     # Always return 200 OK to M-PESA, regardless of processing outcome
     success_response = {"ResultCode": "0", "ResultDesc": "Accepted"}
 
@@ -419,23 +423,25 @@ async def handle_stk_callback(
         result_code = parsed["result_code"]
 
         # Check for duplicate callback (idempotency)
-        existing_processed = await check_callback_processed(checkout_request_id, db)
+        existing_processed = await check_callback_processed(checkout_request_id)
         if existing_processed:
             logger.info(
                 "Duplicate callback detected - already processed",
                 extra={
                     "checkout_request_id": checkout_request_id,
-                    "payment_status": existing_processed.status,
+                    "payment_status": existing_processed["status"],
                 },
             )
             return success_response
 
         # Find payment record by CheckoutRequestID
-        payment_stmt = select(Payment).where(
-            Payment.checkout_request_id == checkout_request_id
+        payment_response = (
+            supabase.table("payments")
+            .select("*")
+            .eq("checkout_request_id", checkout_request_id)
+            .execute()
         )
-        payment_result = await db.execute(payment_stmt)
-        payment = payment_result.scalar_one_or_none()
+        payment = payment_response.data[0] if payment_response.data else None
 
         if not payment:
             logger.warning(
@@ -445,72 +451,75 @@ async def handle_stk_callback(
             return success_response
 
         # Load related invoice
-        invoice_stmt = select(Invoice).where(Invoice.id == payment.invoice_id)
-        invoice_result = await db.execute(invoice_stmt)
-        invoice = invoice_result.scalar_one_or_none()
+        invoice_response = (
+            supabase.table("invoices")
+            .select("*")
+            .eq("id", payment["invoice_id"])
+            .execute()
+        )
+        invoice = invoice_response.data[0] if invoice_response.data else None
 
         if not invoice:
             logger.error(
                 "Invoice not found for payment",
-                extra={"payment_id": payment.id, "invoice_id": payment.invoice_id},
+                extra={"payment_id": payment["id"], "invoice_id": payment["invoice_id"]},
             )
             return success_response
-
-        # Store callback payload
-        payment.raw_callback = payload
 
         # Update payment and invoice based on result
         if result_code == 0:
             # Payment successful
-            payment.status = "SUCCESS"
-            payment.mpesa_receipt = parsed.get("mpesa_receipt")
+            payment_update_data = {
+                "status": "SUCCESS",
+                "mpesa_receipt": parsed.get("mpesa_receipt"),
+                "raw_callback": payload,
+            }
+            supabase.table("payments").update(payment_update_data).eq("id", payment["id"]).execute()
+            payment.update(payment_update_data)
 
-            invoice.status = "PAID"
-            invoice.pay_ref = parsed.get("mpesa_receipt")
+            invoice_update_data = {
+                "status": "PAID",
+                "pay_ref": parsed.get("mpesa_receipt"),
+            }
+            supabase.table("invoices").update(invoice_update_data).eq("id", invoice["id"]).execute()
+            invoice.update(invoice_update_data)
 
             logger.info(
                 "Payment successful",
                 extra={
-                    "payment_id": payment.id,
-                    "invoice_id": invoice.id,
-                    "mpesa_receipt": payment.mpesa_receipt,
+                    "payment_id": payment["id"],
+                    "invoice_id": invoice["id"],
+                    "mpesa_receipt": payment["mpesa_receipt"],
                 },
             )
-
-            # Commit changes before sending messages
-            await db.commit()
-            await db.refresh(payment)
-            await db.refresh(invoice)
 
             # Send receipts to customer and merchant
             whatsapp_service = WhatsAppService()
 
             # Convert amount from cents to KES
-            amount_kes = invoice.amount_cents / 100
+            amount_kes = invoice["amount_cents"] / 100
 
             try:
                 # Send receipt to customer
                 await whatsapp_service.send_receipt_to_customer(
-                    customer_msisdn=invoice.msisdn,
-                    invoice_id=invoice.id,
+                    customer_msisdn=invoice["msisdn"],
+                    invoice_id=invoice["id"],
                     amount_kes=amount_kes,
-                    mpesa_receipt=payment.mpesa_receipt or "N/A",
-                    db_session=db,
+                    mpesa_receipt=payment.get("mpesa_receipt") or "N/A",
                 )
 
                 # Send receipt to merchant
                 await whatsapp_service.send_receipt_to_merchant(
-                    merchant_msisdn=invoice.merchant_msisdn,
-                    invoice_id=invoice.id,
-                    customer_msisdn=invoice.msisdn,
+                    merchant_msisdn=invoice["merchant_msisdn"],
+                    invoice_id=invoice["id"],
+                    customer_msisdn=invoice["msisdn"],
                     amount_kes=amount_kes,
-                    mpesa_receipt=payment.mpesa_receipt or "N/A",
-                    db_session=db,
+                    mpesa_receipt=payment.get("mpesa_receipt") or "N/A",
                 )
 
                 logger.info(
                     "Receipts sent successfully",
-                    extra={"invoice_id": invoice.id, "payment_id": payment.id},
+                    extra={"invoice_id": invoice["id"], "payment_id": payment["id"]},
                 )
 
             except Exception as e:
@@ -518,8 +527,8 @@ async def handle_stk_callback(
                     "Failed to send receipts",
                     extra={
                         "error": str(e),
-                        "invoice_id": invoice.id,
-                        "payment_id": payment.id,
+                        "invoice_id": invoice["id"],
+                        "payment_id": payment["id"],
                     },
                     exc_info=True,
                 )
@@ -527,20 +536,28 @@ async def handle_stk_callback(
 
         else:
             # Payment failed
-            payment.status = "FAILED"
-            invoice.status = "FAILED"
+            payment_update_data = {
+                "status": "FAILED",
+                "raw_callback": payload,
+            }
+            supabase.table("payments").update(payment_update_data).eq("id", payment["id"]).execute()
+            payment.update(payment_update_data)
+
+            invoice_update_data = {
+                "status": "FAILED",
+            }
+            supabase.table("invoices").update(invoice_update_data).eq("id", invoice["id"]).execute()
+            invoice.update(invoice_update_data)
 
             logger.info(
                 "Payment failed",
                 extra={
-                    "payment_id": payment.id,
-                    "invoice_id": invoice.id,
+                    "payment_id": payment["id"],
+                    "invoice_id": invoice["id"],
                     "result_code": result_code,
                     "result_desc": parsed.get("result_desc"),
                 },
             )
-
-            await db.commit()
 
             # Notify merchant and customer of payment failure (Task 4.4)
             try:
@@ -560,29 +577,29 @@ async def handle_stk_callback(
 
                 # Notify merchant
                 merchant_message = (
-                    f"Payment failed for invoice {invoice.id}\n"
-                    f"Customer: {invoice.msisdn}\n"
+                    f"Payment failed for invoice {invoice['id']}\n"
+                    f"Customer: {invoice['msisdn']}\n"
                     f"Reason: {failure_reason}"
                 )
                 await whatsapp_service.send_message(
-                    invoice.merchant_msisdn,
+                    invoice["merchant_msisdn"],
                     merchant_message
                 )
 
                 # Notify customer
                 customer_message = (
-                    f"Payment for invoice {invoice.id} was not completed.\n"
+                    f"Payment for invoice {invoice['id']} was not completed.\n"
                     f"Reason: {failure_reason}\n"
                     f"You can try again by clicking the Pay button in the invoice message."
                 )
                 await whatsapp_service.send_message(
-                    invoice.msisdn,
+                    invoice["msisdn"],
                     customer_message
                 )
 
                 logger.info(
                     "Payment failure notifications sent",
-                    extra={"invoice_id": invoice.id},
+                    extra={"invoice_id": invoice["id"]},
                 )
 
             except Exception as notify_error:
@@ -590,7 +607,7 @@ async def handle_stk_callback(
                     "Failed to send payment failure notifications",
                     extra={
                         "error": str(notify_error),
-                        "invoice_id": invoice.id,
+                        "invoice_id": invoice["id"],
                     },
                     exc_info=True,
                 )

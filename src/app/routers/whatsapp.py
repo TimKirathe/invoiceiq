@@ -8,14 +8,17 @@ endpoint for receiving messages and interactive button responses.
 
 from datetime import datetime
 from typing import Any, Optional
+from uuid import uuid4
+import random
+import time
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..db import get_db
-from ..models import MessageLog
+from ..db import get_supabase_client
+from ..schemas import InvoiceCreate
+from ..services.mpesa import MPesaService
 from ..services.whatsapp import WhatsAppService
 from ..utils.logging import get_logger
 
@@ -135,7 +138,6 @@ async def verify_webhook(
 @router.post("/webhook")
 async def receive_webhook(
     payload: dict[str, Any],
-    db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     """
     WhatsApp webhook receiver endpoint (POST).
@@ -146,11 +148,12 @@ async def receive_webhook(
 
     Args:
         payload: The JSON payload from WhatsApp
-        db: Database session dependency
 
     Returns:
         Dictionary with status: received
     """
+    supabase = get_supabase_client()
+
     logger.info(
         "Webhook received",
         extra={
@@ -197,15 +200,8 @@ async def receive_webhook(
                 )
 
                 # Lookup invoice in database (Task 2.1)
-                from ..models import Invoice, Payment
-                from sqlalchemy import select
-                from ..services.mpesa import MPesaService
-                from uuid import uuid4
-                import time
-
-                invoice_stmt = select(Invoice).where(Invoice.id == invoice_id)
-                invoice_result = await db.execute(invoice_stmt)
-                invoice = invoice_result.scalar_one_or_none()
+                invoice_response = supabase.table("invoices").select("*").eq("id", invoice_id).execute()
+                invoice = invoice_response.data[0] if invoice_response.data else None
 
                 # Validate invoice exists
                 if not invoice:
@@ -217,37 +213,37 @@ async def receive_webhook(
                         f"Invoice {invoice_id} not found. Please contact the merchant."
                     )
                 # Check if already paid
-                elif invoice.status == "PAID":
+                elif invoice["status"] == "PAID":
                     logger.info(
                         "Invoice already paid",
                         extra={"invoice_id": invoice_id, "sender": sender},
                     )
                     response_text = (
                         f"Invoice {invoice_id} has already been paid. "
-                        f"Receipt: {invoice.pay_ref or 'N/A'}"
+                        f"Receipt: {invoice.get('pay_ref') or 'N/A'}"
                     )
                 # Validate invoice status allows payment
-                elif invoice.status not in ["SENT", "PENDING"]:
+                elif invoice["status"] not in ["SENT", "PENDING"]:
                     logger.warning(
                         "Invalid invoice status for payment",
-                        extra={"invoice_id": invoice_id, "status": invoice.status},
+                        extra={"invoice_id": invoice_id, "status": invoice["status"]},
                     )
                     response_text = (
-                        f"Invoice {invoice_id} cannot be paid (status: {invoice.status}). "
+                        f"Invoice {invoice_id} cannot be paid (status: {invoice['status']}). "
                         f"Please contact the merchant."
                     )
                 # Verify button clicker is the invoice customer (Task 4.1)
-                elif sender != invoice.msisdn:
+                elif sender != invoice["msisdn"]:
                     logger.warning(
                         "Payment button clicked by different phone number",
                         extra={
                             "invoice_id": invoice_id,
-                            "invoice_customer": invoice.msisdn,
+                            "invoice_customer": invoice["msisdn"],
                             "button_clicker": sender,
                         },
                     )
                     response_text = (
-                        f"This invoice is for {invoice.msisdn}. "
+                        f"This invoice is for {invoice['msisdn']}. "
                         f"If you are the customer, please use the phone number that received the invoice."
                     )
                 else:
@@ -259,31 +255,36 @@ async def receive_webhook(
                         idempotency_key = f"{invoice_id}-button-{int(time.time())}"
 
                         # Check if payment already exists for this invoice (any status) - Enhanced duplicate prevention (Task 4.3)
-                        existing_payment_stmt = select(Payment).where(
-                            Payment.invoice_id == invoice_id
-                        ).order_by(Payment.created_at.desc())
-                        existing_payment_result = await db.execute(existing_payment_stmt)
-                        existing_payment = existing_payment_result.scalar_one_or_none()
+                        existing_payment_response = (
+                            supabase.table("payments")
+                            .select("*")
+                            .eq("invoice_id", invoice_id)
+                            .order("created_at", desc=True)
+                            .limit(1)
+                            .execute()
+                        )
+                        existing_payment = existing_payment_response.data[0] if existing_payment_response.data else None
 
                         if existing_payment:
-                            if existing_payment.status == "INITIATED":
+                            if existing_payment["status"] == "INITIATED":
                                 # Payment in progress
                                 logger.info(
                                     "Payment already initiated",
-                                    extra={"invoice_id": invoice_id, "payment_id": existing_payment.id},
+                                    extra={"invoice_id": invoice_id, "payment_id": existing_payment["id"]},
                                 )
                                 response_text = (
                                     "Payment request already sent! Check your phone for the M-PESA prompt. "
                                     "If you didn't receive it, please wait 2 minutes and try again."
                                 )
-                            elif existing_payment.status == "SUCCESS":
+                            elif existing_payment["status"] == "SUCCESS":
                                 # Already paid
                                 response_text = (
-                                    f"This invoice has already been paid. Receipt: {existing_payment.mpesa_receipt or 'N/A'}"
+                                    f"This invoice has already been paid. Receipt: {existing_payment.get('mpesa_receipt') or 'N/A'}"
                                 )
-                            elif existing_payment.status == "FAILED":
+                            elif existing_payment["status"] == "FAILED":
                                 # Previous attempt failed, check cooldown period
-                                time_since_failure = (datetime.utcnow() - existing_payment.updated_at).total_seconds()
+                                updated_at = datetime.fromisoformat(existing_payment["updated_at"].replace("Z", "+00:00"))
+                                time_since_failure = (datetime.utcnow() - updated_at.replace(tzinfo=None)).total_seconds()
                                 if time_since_failure < 120:  # 2 minutes cooldown
                                     response_text = (
                                         f"Previous payment failed. Please wait {int(120 - time_since_failure)} seconds before retrying."
@@ -292,7 +293,7 @@ async def receive_webhook(
                                     # Allow retry (continue with STK Push creation)
                                     logger.info(
                                         "Retrying payment after previous failure",
-                                        extra={"invoice_id": invoice_id, "previous_payment_id": existing_payment.id},
+                                        extra={"invoice_id": invoice_id, "previous_payment_id": existing_payment["id"]},
                                     )
                                     # Continue to STK Push initiation (don't set response_text)
                                     existing_payment = None  # Reset to allow continuation
@@ -300,36 +301,35 @@ async def receive_webhook(
                                 # Unknown status
                                 logger.warning(
                                     "Payment exists with unknown status",
-                                    extra={"invoice_id": invoice_id, "status": existing_payment.status},
+                                    extra={"invoice_id": invoice_id, "status": existing_payment["status"]},
                                 )
                                 response_text = (
-                                    f"Payment status unclear ({existing_payment.status}). Please contact the merchant."
+                                    f"Payment status unclear ({existing_payment['status']}). Please contact the merchant."
                                 )
 
                         if not existing_payment:
                             # Convert amount from cents to whole KES
-                            amount_kes = round(invoice.amount_cents / 100)
+                            amount_kes = round(invoice["amount_cents"] / 100)
 
                             # Create Payment record with status INITIATED
-                            payment = Payment(
-                                id=str(uuid4()),
-                                invoice_id=invoice.id,
-                                method="MPESA_STK",
-                                status="INITIATED",
-                                amount_cents=invoice.amount_cents,
-                                idempotency_key=idempotency_key,
-                                raw_request={},
-                                raw_callback=None,
-                                mpesa_receipt=None,
-                            )
+                            payment_data = {
+                                "id": str(uuid4()),
+                                "invoice_id": invoice["id"],
+                                "method": "MPESA_STK",
+                                "status": "INITIATED",
+                                "amount_cents": invoice["amount_cents"],
+                                "idempotency_key": idempotency_key,
+                                "raw_request": {},
+                                "raw_callback": None,
+                                "mpesa_receipt": None,
+                            }
 
-                            db.add(payment)
-                            await db.commit()
-                            await db.refresh(payment)
+                            payment_response = supabase.table("payments").insert(payment_data).execute()
+                            payment = payment_response.data[0]
 
                             # Prepare STK Push request (M-PESA field limits)
-                            account_reference = invoice.id[:20]  # Max 20 characters
-                            transaction_desc = invoice.description[:20]  # Max 20 characters
+                            account_reference = invoice["id"][:20]  # Max 20 characters
+                            transaction_desc = invoice["description"][:20]  # Max 20 characters
 
                             # Initiate STK Push
                             stk_response = await mpesa_service.initiate_stk_push(
@@ -340,26 +340,26 @@ async def receive_webhook(
                             )
 
                             # Update payment with raw request and response
-                            payment.raw_request = {
-                                "phone_number": sender,
-                                "amount": amount_kes,
-                                "account_reference": account_reference,
-                                "transaction_desc": transaction_desc,
-                                "stk_response": stk_response,
+                            updated_payment_data = {
+                                "raw_request": {
+                                    "phone_number": sender,
+                                    "amount": amount_kes,
+                                    "account_reference": account_reference,
+                                    "transaction_desc": transaction_desc,
+                                    "stk_response": stk_response,
+                                },
+                                "checkout_request_id": stk_response.get("CheckoutRequestID"),
+                                "merchant_request_id": stk_response.get("MerchantRequestID"),
                             }
 
-                            # Store CheckoutRequestID and MerchantRequestID for callback matching
-                            payment.checkout_request_id = stk_response.get("CheckoutRequestID")
-                            payment.merchant_request_id = stk_response.get("MerchantRequestID")
-
-                            await db.commit()
-                            await db.refresh(payment)
+                            supabase.table("payments").update(updated_payment_data).eq("id", payment["id"]).execute()
+                            payment.update(updated_payment_data)
 
                             logger.info(
                                 "STK Push initiated from button click",
                                 extra={
-                                    "payment_id": payment.id,
-                                    "invoice_id": invoice.id,
+                                    "payment_id": payment["id"],
+                                    "invoice_id": invoice["id"],
                                     "customer_msisdn": sender,
                                 },
                             )
@@ -382,13 +382,15 @@ async def receive_webhook(
                         )
                         # Update payment status to FAILED if it was created
                         if 'payment' in locals():
-                            payment.status = "FAILED"
-                            payment.raw_request = {
-                                "error": str(stk_error),
-                                "phone_number": sender,
-                                "amount": amount_kes if 'amount_kes' in locals() else None,
+                            failed_payment_data = {
+                                "status": "FAILED",
+                                "raw_request": {
+                                    "error": str(stk_error),
+                                    "phone_number": sender,
+                                    "amount": amount_kes if 'amount_kes' in locals() else None,
+                                },
                             }
-                            await db.commit()
+                            supabase.table("payments").update(failed_payment_data).eq("id", payment["id"]).execute()
 
                         response_text = (
                             "Failed to initiate payment. Please try again or contact support. "
@@ -397,25 +399,26 @@ async def receive_webhook(
 
                 # Create MessageLog entry for button click (Task 2.2)
                 try:
-                    button_click_log = MessageLog(
-                        invoice_id=invoice_id,
-                        channel="WHATSAPP",
-                        direction="IN",
-                        event="payment_button_clicked",
-                        payload={
+                    button_click_log_data = {
+                        "invoice_id": invoice_id,
+                        "channel": "WHATSAPP",
+                        "direction": "IN",
+                        "event": "payment_button_clicked",
+                        "payload": {
                             "button_id": message_text,
                             "invoice_id": invoice_id,
-                            "payment_initiated": 'payment' in locals() and payment.status == "INITIATED",
-                            "payment_id": payment.id if 'payment' in locals() else None,
+                            "payment_initiated": 'payment' in locals() and payment.get("status") == "INITIATED",
+                            "payment_id": payment["id"] if 'payment' in locals() else None,
                             "stk_request_sent": 'stk_response' in locals(),
                             "timestamp": datetime.utcnow().isoformat(),
                         },
-                    )
-                    db.add(button_click_log)
-                    await db.commit()
+                    }
+                    button_click_response = supabase.table("message_log").insert(button_click_log_data).execute()
+                    button_click_log = button_click_response.data[0]
+
                     logger.info(
                         "Button click logged",
-                        extra={"invoice_id": invoice_id, "message_log_id": button_click_log.id},
+                        extra={"invoice_id": invoice_id, "message_log_id": button_click_log["id"]},
                     )
                 except Exception as log_error:
                     logger.error(
@@ -506,9 +509,6 @@ async def receive_webhook(
                         else:
                             # Create invoice
                             try:
-                                from ..models import Invoice
-                                from ..schemas import InvoiceCreate
-
                                 invoice_create = InvoiceCreate(
                                     msisdn=customer_msisdn,
                                     customer_name=None,  # Not provided in one-line command
@@ -518,8 +518,6 @@ async def receive_webhook(
                                 )
 
                                 # Generate invoice ID
-                                import random
-                                import time
                                 timestamp = int(time.time())
                                 random_num = random.randint(1000, 9999)
                                 invoice_id = f"INV-{timestamp}-{random_num}"
@@ -529,52 +527,49 @@ async def receive_webhook(
                                 vat_amount = int((invoice_create.amount_cents * 16) / 116)
 
                                 # Create invoice record
-                                invoice = Invoice(
-                                    id=invoice_id,
-                                    customer_name=invoice_create.customer_name,
-                                    msisdn=invoice_create.msisdn,
-                                    merchant_msisdn=invoice_create.merchant_msisdn,
-                                    amount_cents=invoice_create.amount_cents,
-                                    vat_amount=vat_amount,
-                                    currency="KES",
-                                    description=invoice_create.description,
-                                    status="PENDING",
-                                    pay_ref=None,
-                                    pay_link=None,
-                                )
+                                invoice_data = {
+                                    "id": invoice_id,
+                                    "customer_name": invoice_create.customer_name,
+                                    "msisdn": invoice_create.msisdn,
+                                    "merchant_msisdn": invoice_create.merchant_msisdn,
+                                    "amount_cents": invoice_create.amount_cents,
+                                    "vat_amount": vat_amount,
+                                    "currency": "KES",
+                                    "description": invoice_create.description,
+                                    "status": "PENDING",
+                                    "pay_ref": None,
+                                    "pay_link": None,
+                                }
 
-                                db.add(invoice)
-                                await db.commit()
-                                await db.refresh(invoice)
+                                invoice_response = supabase.table("invoices").insert(invoice_data).execute()
+                                invoice = invoice_response.data[0]
 
                                 logger.info(
                                     "Invoice created from one-line command",
-                                    extra={"invoice_id": invoice.id, "merchant_msisdn": sender},
+                                    extra={"invoice_id": invoice["id"], "merchant_msisdn": sender},
                                 )
 
                                 # Send invoice to customer
                                 send_success = await whatsapp_service.send_invoice_to_customer(
-                                    invoice_id=invoice.id,
-                                    customer_msisdn=invoice.msisdn,
-                                    customer_name=invoice.customer_name,
-                                    amount_cents=invoice.amount_cents,
-                                    description=invoice.description,
-                                    db_session=db,
+                                    invoice_id=invoice["id"],
+                                    customer_msisdn=invoice["msisdn"],
+                                    customer_name=invoice.get("customer_name"),
+                                    amount_cents=invoice["amount_cents"],
+                                    description=invoice["description"],
                                 )
 
                                 # Update invoice status
                                 if send_success:
-                                    invoice.status = "SENT"
-                                    await db.commit()
-                                    await db.refresh(invoice)
+                                    supabase.table("invoices").update({"status": "SENT"}).eq("id", invoice["id"]).execute()
+                                    invoice["status"] = "SENT"
 
                                     # Send merchant confirmation
                                     await whatsapp_service.send_merchant_confirmation(
                                         merchant_msisdn=sender,
-                                        invoice_id=invoice.id,
-                                        customer_msisdn=invoice.msisdn,
-                                        amount_cents=invoice.amount_cents,
-                                        status=invoice.status,
+                                        invoice_id=invoice["id"],
+                                        customer_msisdn=invoice["msisdn"],
+                                        amount_cents=invoice["amount_cents"],
+                                        status=invoice["status"],
                                     )
 
                                     # Override response text (confirmation already sent)
@@ -582,10 +577,10 @@ async def receive_webhook(
                                 else:
                                     logger.warning(
                                         "Invoice created but failed to send (one-line command)",
-                                        extra={"invoice_id": invoice.id},
+                                        extra={"invoice_id": invoice["id"]},
                                     )
                                     response_text = (
-                                        f"Invoice {invoice.id} created but failed to send to customer. "
+                                        f"Invoice {invoice['id']} created but failed to send to customer. "
                                         f"Status: PENDING. You can try again later."
                                     )
 
@@ -603,7 +598,6 @@ async def receive_webhook(
                                     extra={"error": str(e), "merchant_msisdn": sender},
                                     exc_info=True,
                                 )
-                                await db.rollback()
                                 response_text = (
                                     "Failed to create invoice. Please try again or use the guided flow "
                                     "(send 'invoice' without parameters)."
@@ -645,24 +639,19 @@ async def receive_webhook(
 
             # If user confirmed, create the invoice
             if flow_result.get("action") == "confirmed" and flow_result.get("invoice_data"):
-                from ..models import Invoice
-                from ..schemas import InvoiceCreate
-
-                invoice_data = flow_result["invoice_data"]
+                invoice_data_from_flow = flow_result["invoice_data"]
 
                 # Create InvoiceCreate schema
                 try:
                     invoice_create = InvoiceCreate(
-                        msisdn=invoice_data["phone"],
-                        customer_name=invoice_data.get("name"),
+                        msisdn=invoice_data_from_flow["phone"],
+                        customer_name=invoice_data_from_flow.get("name"),
                         merchant_msisdn=sender,  # Merchant is the sender of the message
-                        amount_cents=invoice_data["amount_cents"],
-                        description=invoice_data["description"],
+                        amount_cents=invoice_data_from_flow["amount_cents"],
+                        description=invoice_data_from_flow["description"],
                     )
 
                     # Generate invoice ID
-                    import random
-                    import time
                     timestamp = int(time.time())
                     random_num = random.randint(1000, 9999)
                     invoice_id = f"INV-{timestamp}-{random_num}"
@@ -672,52 +661,49 @@ async def receive_webhook(
                     vat_amount = int((invoice_create.amount_cents * 16) / 116)
 
                     # Create invoice record
-                    invoice = Invoice(
-                        id=invoice_id,
-                        customer_name=invoice_create.customer_name,
-                        msisdn=invoice_create.msisdn,
-                        merchant_msisdn=invoice_create.merchant_msisdn,
-                        amount_cents=invoice_create.amount_cents,
-                        vat_amount=vat_amount,
-                        currency="KES",
-                        description=invoice_create.description,
-                        status="PENDING",
-                        pay_ref=None,
-                        pay_link=None,
-                    )
+                    invoice_data = {
+                        "id": invoice_id,
+                        "customer_name": invoice_create.customer_name,
+                        "msisdn": invoice_create.msisdn,
+                        "merchant_msisdn": invoice_create.merchant_msisdn,
+                        "amount_cents": invoice_create.amount_cents,
+                        "vat_amount": vat_amount,
+                        "currency": "KES",
+                        "description": invoice_create.description,
+                        "status": "PENDING",
+                        "pay_ref": None,
+                        "pay_link": None,
+                    }
 
-                    db.add(invoice)
-                    await db.commit()
-                    await db.refresh(invoice)
+                    invoice_response = supabase.table("invoices").insert(invoice_data).execute()
+                    invoice = invoice_response.data[0]
 
                     logger.info(
                         "Invoice created from guided flow",
-                        extra={"invoice_id": invoice.id, "merchant_msisdn": sender},
+                        extra={"invoice_id": invoice["id"], "merchant_msisdn": sender},
                     )
 
                     # Send invoice to customer
                     send_success = await whatsapp_service.send_invoice_to_customer(
-                        invoice_id=invoice.id,
-                        customer_msisdn=invoice.msisdn,
-                        customer_name=invoice.customer_name,
-                        amount_cents=invoice.amount_cents,
-                        description=invoice.description,
-                        db_session=db,
+                        invoice_id=invoice["id"],
+                        customer_msisdn=invoice["msisdn"],
+                        customer_name=invoice.get("customer_name"),
+                        amount_cents=invoice["amount_cents"],
+                        description=invoice["description"],
                     )
 
                     # Update invoice status
                     if send_success:
-                        invoice.status = "SENT"
-                        await db.commit()
-                        await db.refresh(invoice)
+                        supabase.table("invoices").update({"status": "SENT"}).eq("id", invoice["id"]).execute()
+                        invoice["status"] = "SENT"
 
                         # Send merchant confirmation
                         await whatsapp_service.send_merchant_confirmation(
                             merchant_msisdn=sender,
-                            invoice_id=invoice.id,
-                            customer_msisdn=invoice.msisdn,
-                            amount_cents=invoice.amount_cents,
-                            status=invoice.status,
+                            invoice_id=invoice["id"],
+                            customer_msisdn=invoice["msisdn"],
+                            amount_cents=invoice["amount_cents"],
+                            status=invoice["status"],
                         )
 
                         # Override response text
@@ -725,10 +711,10 @@ async def receive_webhook(
                     else:
                         logger.warning(
                             "Invoice created but failed to send",
-                            extra={"invoice_id": invoice.id},
+                            extra={"invoice_id": invoice["id"]},
                         )
                         response_text = (
-                            f"Invoice {invoice.id} created but failed to send to customer. "
+                            f"Invoice {invoice['id']} created but failed to send to customer. "
                             f"Status: PENDING. You can try again later."
                         )
 
@@ -738,7 +724,6 @@ async def receive_webhook(
                         extra={"error": str(invoice_error), "merchant_msisdn": sender},
                         exc_info=True,
                     )
-                    await db.rollback()
                     response_text = (
                         "Failed to create invoice. Please try again by sending 'invoice'."
                     )
@@ -772,24 +757,24 @@ async def receive_webhook(
             event_type = "unknown"
             message_id = None
 
-        message_log = MessageLog(
-            invoice_id=None,  # No invoice context yet
-            channel="WHATSAPP",
-            direction="IN",
-            event="webhook_received",
-            payload={
+        message_log_data = {
+            "invoice_id": None,  # No invoice context yet
+            "channel": "WHATSAPP",
+            "direction": "IN",
+            "event": "webhook_received",
+            "payload": {
                 "event_type": event_type,
                 "message_id": message_id,
                 "timestamp": datetime.utcnow().isoformat(),
             },
-        )
+        }
 
-        db.add(message_log)
-        await db.commit()
+        message_log_response = supabase.table("message_log").insert(message_log_data).execute()
+        message_log = message_log_response.data[0]
 
         logger.info(
             "Webhook payload logged to database",
-            extra={"message_log_id": message_log.id},
+            extra={"message_log_id": message_log["id"]},
         )
 
     except Exception as e:
@@ -800,6 +785,5 @@ async def receive_webhook(
         )
         # Don't fail the webhook - WhatsApp expects 200 OK
         # Just log the error and continue
-        await db.rollback()
 
     return {"status": "received"}

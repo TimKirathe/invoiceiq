@@ -7,17 +7,15 @@ and statistics for monitoring system health and performance.
 
 from typing import Optional
 
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from supabase import Client
 
-from ..models import Invoice, Payment
 from ..utils.logging import get_logger
 
 # Set up logger
 logger = get_logger(__name__)
 
 
-async def get_invoice_stats(db: AsyncSession) -> dict[str, int]:
+async def get_invoice_stats(supabase: Client) -> dict[str, int]:
     """
     Get invoice statistics by status.
 
@@ -26,7 +24,7 @@ async def get_invoice_stats(db: AsyncSession) -> dict[str, int]:
     CANCELLED) as well as a total count.
 
     Args:
-        db: Database session
+        supabase: Supabase client
 
     Returns:
         Dictionary with status counts:
@@ -43,9 +41,8 @@ async def get_invoice_stats(db: AsyncSession) -> dict[str, int]:
 
     try:
         # Query total count
-        total_stmt = select(func.count(Invoice.id))
-        total_result = await db.execute(total_stmt)
-        total = total_result.scalar() or 0
+        total_response = supabase.table("invoices").select("id", count="exact").execute()
+        total = total_response.count or 0
 
         # Query counts by status
         stats = {
@@ -59,9 +56,13 @@ async def get_invoice_stats(db: AsyncSession) -> dict[str, int]:
 
         # Query each status count
         for status in ["PENDING", "SENT", "PAID", "FAILED", "CANCELLED"]:
-            stmt = select(func.count(Invoice.id)).where(Invoice.status == status)
-            result = await db.execute(stmt)
-            count = result.scalar() or 0
+            response = (
+                supabase.table("invoices")
+                .select("id", count="exact")
+                .eq("status", status)
+                .execute()
+            )
+            count = response.count or 0
             stats[status.lower()] = count
 
         logger.info(
@@ -84,7 +85,7 @@ async def get_invoice_stats(db: AsyncSession) -> dict[str, int]:
         raise
 
 
-async def get_conversion_rate(db: AsyncSession) -> float:
+async def get_conversion_rate(supabase: Client) -> float:
     """
     Calculate the conversion rate (paid invoices / sent invoices).
 
@@ -92,7 +93,7 @@ async def get_conversion_rate(db: AsyncSession) -> float:
     payments. Returns 0.0 if no invoices have been sent yet.
 
     Args:
-        db: Database session
+        supabase: Supabase client
 
     Returns:
         Conversion rate as a percentage (0.0 to 100.0)
@@ -101,16 +102,22 @@ async def get_conversion_rate(db: AsyncSession) -> float:
 
     try:
         # Count sent invoices (includes SENT, PAID, FAILED statuses)
-        sent_stmt = select(func.count(Invoice.id)).where(
-            Invoice.status.in_(["SENT", "PAID", "FAILED"])
+        sent_response = (
+            supabase.table("invoices")
+            .select("id", count="exact")
+            .in_("status", ["SENT", "PAID", "FAILED"])
+            .execute()
         )
-        sent_result = await db.execute(sent_stmt)
-        sent_count = sent_result.scalar() or 0
+        sent_count = sent_response.count or 0
 
         # Count paid invoices
-        paid_stmt = select(func.count(Invoice.id)).where(Invoice.status == "PAID")
-        paid_result = await db.execute(paid_stmt)
-        paid_count = paid_result.scalar() or 0
+        paid_response = (
+            supabase.table("invoices")
+            .select("id", count="exact")
+            .eq("status", "PAID")
+            .execute()
+        )
+        paid_count = paid_response.count or 0
 
         # Calculate conversion rate
         if sent_count == 0:
@@ -138,7 +145,7 @@ async def get_conversion_rate(db: AsyncSession) -> float:
         raise
 
 
-async def get_average_payment_time(db: AsyncSession) -> Optional[float]:
+async def get_average_payment_time(supabase: Client) -> Optional[float]:
     """
     Calculate the average time (in seconds) from invoice SENT to PAID.
 
@@ -150,7 +157,7 @@ async def get_average_payment_time(db: AsyncSession) -> Optional[float]:
     changed to PAID) and the payment.created_at (when payment was initiated).
 
     Args:
-        db: Database session
+        supabase: Supabase client
 
     Returns:
         Average payment time in seconds, or None if no paid invoices exist
@@ -159,17 +166,16 @@ async def get_average_payment_time(db: AsyncSession) -> Optional[float]:
 
     try:
         # Query paid invoices with their successful payments
-        # We calculate time from when payment was initiated to when it succeeded
-        stmt = (
-            select(Payment.created_at, Payment.updated_at)
-            .select_from(Invoice)
-            .join(Payment, Invoice.id == Payment.invoice_id)
-            .where(Invoice.status == "PAID")
-            .where(Payment.status == "SUCCESS")
+        # We join invoices and payments where status is PAID and payment status is SUCCESS
+        response = (
+            supabase.table("payments")
+            .select("created_at, updated_at, invoices!inner(status)")
+            .eq("invoices.status", "PAID")
+            .eq("status", "SUCCESS")
+            .execute()
         )
 
-        result = await db.execute(stmt)
-        payments = result.all()
+        payments = response.data
 
         if not payments:
             logger.info(
@@ -178,11 +184,20 @@ async def get_average_payment_time(db: AsyncSession) -> Optional[float]:
             return None
 
         # Calculate the average time difference in seconds
+        from datetime import datetime
+
         total_seconds = 0.0
         count = 0
 
-        for created_at, updated_at in payments:
-            if created_at and updated_at:
+        for payment in payments:
+            created_at_str = payment.get("created_at")
+            updated_at_str = payment.get("updated_at")
+
+            if created_at_str and updated_at_str:
+                # Parse ISO format timestamps
+                created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                updated_at = datetime.fromisoformat(updated_at_str.replace("Z", "+00:00"))
+
                 time_diff = (updated_at - created_at).total_seconds()
                 total_seconds += time_diff
                 count += 1
