@@ -1,100 +1,59 @@
-# Fly.io configuration for InvoiceIQ
+# fly.toml app configuration file generated for invoiceiq-new on 2025-11-17T00:08:59+03:00
+#
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-# Application name - customize this before deploying
-app = "invoiceiq-app"
+app = 'invoiceiq-new'
+primary_region = 'jnb'
 
-# Primary region - Nairobi (nbo) or closest to Kenya
-primary_region = "nbo"
-
-# Build configuration
 [build]
 
-# Deploy configuration
 [deploy]
-  # Release command to run database migrations before deployment
-  release_command = "alembic upgrade head"
+  release_command = 'alembic upgrade head'
 
-# Environment variables (non-secret values only)
 [env]
-  APP_NAME = "InvoiceIQ"
-  ENVIRONMENT = "production"
-  DEBUG = "false"
-  # SMS_USE_SANDBOX and MPESA_ENVIRONMENT will be set via fly secrets
+  APP_NAME = 'InvoiceIQ'
+  DEBUG = 'false'
+  ENVIRONMENT = 'production'
 
-# HTTP service configuration
-[[services]]
-  protocol = "tcp"
+[http_service]
   internal_port = 8000
-  processes = ["app"]
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 1
 
-  # HTTP port (80)
+[[services]]
+  protocol = 'tcp'
+  internal_port = 8000
+  processes = ['app']
+
   [[services.ports]]
     port = 80
-    handlers = ["http"]
+    handlers = ['http']
     force_https = true
 
-  # HTTPS port (443)
   [[services.ports]]
     port = 443
-    handlers = ["tls", "http"]
+    handlers = ['tls', 'http']
 
-  # TCP checks for connection verification
   [services.concurrency]
-    type = "connections"
+    type = 'connections'
     hard_limit = 25
     soft_limit = 20
 
-  # HTTP health check
   [[services.tcp_checks]]
-    interval = "15s"
-    timeout = "2s"
-    grace_period = "5s"
+    interval = '15s'
+    timeout = '2s'
+    grace_period = '5s'
 
-  # HTTP health check endpoint
   [[services.http_checks]]
-    interval = "30s"
-    timeout = "5s"
-    grace_period = "10s"
-    method = "get"
-    path = "/healthz"
-    protocol = "http"
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'get'
+    path = '/healthz'
+    protocol = 'http'
 
-# VM resources
-[vm]
-  # Shared CPU - cost-effective for MVP
-  cpu_kind = "shared"
-  # 1 vCPU
-  cpus = 1
-  # 256MB RAM (can scale up if needed)
-  memory_mb = 256
-
-# Auto-scaling configuration
-[http_service]
-  # Auto-stop machines when idle to save costs
-  auto_stop_machines = true
-  auto_start_machines = true
-  # Minimum number of machines to keep running
-  min_machines_running = 1
-  # Force HTTPS
-  force_https = true
-
-# Optional: Add custom domains
-# [[services.ports.custom_domains]]
-#   name = "yourdomain.com"
-
-# Secrets to set via `fly secrets set`:
-# - WABA_TOKEN
-# - WABA_PHONE_ID
-# - WABA_VERIFY_TOKEN
-# - SMS_API_KEY
-# - SMS_USERNAME
-# - SMS_SENDER_ID
-# - SMS_USE_SANDBOX
-# - MPESA_CONSUMER_KEY
-# - MPESA_CONSUMER_SECRET
-# - MPESA_SHORTCODE
-# - MPESA_PASSKEY
-# - MPESA_CALLBACK_URL (https://<app-name>.fly.dev/payments/stk/callback)
-# - MPESA_ENVIRONMENT
-# - DATABASE_URL (automatically set when you attach Fly Postgres)
+[[vm]]
+  size = 'shared-cpu-1x'

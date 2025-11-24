@@ -204,17 +204,27 @@ class WhatsAppService:
     """
 
     def __init__(self) -> None:
-        """Initialize the WhatsApp service with configuration from settings."""
-        self.waba_token = settings.waba_token
-        self.waba_phone_id = settings.waba_phone_id
-        self.base_url = "https://graph.facebook.com/v21.0"
+        """
+        Initialize the WhatsApp service with 360 Dialog configuration.
+
+        360 Dialog acts as a Business Solution Provider (BSP) for WhatsApp,
+        providing a simplified API proxy. Key differences from direct WABA:
+        - Uses API key authentication (D360-API-KEY header) instead of bearer tokens
+        - Phone number mapping is managed internally by 360 Dialog
+        - No phone_id needed in endpoint URLs
+        """
+        # 360 Dialog uses API key authentication instead of bearer tokens
+        self.api_key = settings.d360_api_key
+        # Phone ID not needed - 360 Dialog manages phone number mapping internally
+        # based on the API key configuration in the Partner Portal
+        self.base_url = settings.d360_webhook_base_url
         self.state_manager = ConversationStateManager
 
         logger.info(
             "WhatsAppService initialized",
             extra={
                 "base_url": self.base_url,
-                "phone_id": self.waba_phone_id[:5] + "..." if self.waba_phone_id else None,
+                "provider": "360dialog",
             },
         )
 
@@ -550,9 +560,10 @@ class WhatsAppService:
         Raises:
             Exception: If all retry attempts fail or API returns error
         """
-        url = f"{self.base_url}/{self.waba_phone_id}/messages"
+        # 360 Dialog endpoint - no phone_id in URL
+        url = f"{self.base_url}/messages"
         headers = {
-            "Authorization": f"Bearer {self.waba_token}",
+            "D360-API-KEY": self.api_key,
             "Content-Type": "application/json",
         }
         payload = {
@@ -642,10 +653,10 @@ class WhatsAppService:
         # Format invoice message (keep ≤ 2 lines as per CLAUDE.md)
         message_text = f"Invoice {invoice_id}\nAmount: KES {amount_kes:.2f} | {description}"
 
-        # Prepare WhatsApp interactive button payload
-        url = f"{self.base_url}/{self.waba_phone_id}/messages"
+        # Prepare WhatsApp interactive button payload (360 Dialog endpoint)
+        url = f"{self.base_url}/messages"
         headers = {
-            "Authorization": f"Bearer {self.waba_token}",
+            "D360-API-KEY": self.api_key,
             "Content-Type": "application/json",
         }
         payload = {

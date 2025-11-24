@@ -30,35 +30,26 @@ def validate_webhook_signature(payload: dict[str, Any], signature: str) -> bool:
     """
     Validate WhatsApp webhook signature for production security.
 
-    TODO: Implement HMAC signature validation in production.
+    TODO: Implement 360 Dialog webhook signature verification.
+    360 Dialog uses a different signature method than Meta WABA.
+    See: https://docs.360dialog.com/webhooks/signature-verification
+
     This is a placeholder for MVP - production should validate webhooks
-    using HMAC SHA256 signature with app secret.
+    using 360 Dialog's signature verification method.
 
     Args:
         payload: The webhook payload dict
-        signature: The X-Hub-Signature-256 header value
+        signature: The signature header value
 
     Returns:
         bool: True if signature is valid (always True in MVP)
-
-    Example implementation for production:
-        import hmac
-        import hashlib
-        payload_bytes = json.dumps(payload, separators=(',', ':')).encode('utf-8')
-        expected_signature = hmac.new(
-            settings.waba_app_secret.encode('utf-8'),
-            payload_bytes,
-            hashlib.sha256
-        ).hexdigest()
-        return hmac.compare_digest(f"sha256={expected_signature}", signature)
     """
     # MVP: Log warning but don't block requests
-    if not settings.waba_verify_token:
-        logger.warning(
-            "Webhook signature validation is disabled in MVP - "
-            "WABA_APP_SECRET not configured. Enable for production!",
-            extra={"has_signature": bool(signature)},
-        )
+    logger.warning(
+        "Webhook signature validation is disabled in MVP. "
+        "Implement 360 Dialog signature verification for production!",
+        extra={"has_signature": bool(signature)},
+    )
     return True  # Always allow in MVP
 
 
@@ -121,8 +112,8 @@ async def verify_webhook(
             detail="Invalid hub.mode - expected 'subscribe'",
         )
 
-    # Validate verify token
-    if hub_verify_token != settings.waba_verify_token:
+    # Validate verify token (standard WhatsApp webhook verification)
+    if hub_verify_token != settings.webhook_verify_token:
         logger.warning(
             "Webhook verification failed: invalid verify token",
             extra={"provided_token_length": len(hub_verify_token)},

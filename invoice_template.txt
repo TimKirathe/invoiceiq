@@ -1,0 +1,15 @@
+You have received a new invoice:
+
+Invoice ID: {{1}} [INV-2025-00045]
+Invoice From: {{2}} [SparkleHome Cleaning Services]
+Invoice For: {{3}} [Full Home Deep Cleaning - KES 1,833.33 (x3)]
+VAT: {{4}} [KES 880.00]
+Invoice Total: {{5}} [KES 6,380.00]
+Invoice Due: {{6}} [Due on receipt]
+
+M-PESA payment details:
+{{7}} [Paybill: 654321; Account: INV-2025-00045]
+
+You can use the button below to view your invoice and make payment via STK push.
+
+If you received this message in error, you can safely ignore it.

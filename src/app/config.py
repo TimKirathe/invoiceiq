@@ -17,13 +17,11 @@ class Settings(BaseSettings):
     """
 
     # WhatsApp Business API Configuration (via 360 Dialog)
-    waba_token: str
-    waba_phone_id: str
-    waba_verify_token: str
-
-    # 360 Dialog Configuration
+    # 360 Dialog acts as a Business Solution Provider (BSP) for WhatsApp,
+    # providing a simplified API that handles phone number management internally
     d360_api_key: str
     d360_webhook_base_url: str = "https://waba-v2.360dialog.io"
+    webhook_verify_token: str  # Standard WhatsApp webhook verification token
 
     # SMS Provider Configuration (Africa's Talking)
     sms_api_key: str
