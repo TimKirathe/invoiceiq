@@ -236,6 +236,20 @@ async def receive_webhook(
                         f"Invoice {invoice_id} cannot be paid (status: {invoice.status}). "
                         f"Please contact the merchant."
                     )
+                # Verify button clicker is the invoice customer (Task 4.1)
+                elif sender != invoice.msisdn:
+                    logger.warning(
+                        "Payment button clicked by different phone number",
+                        extra={
+                            "invoice_id": invoice_id,
+                            "invoice_customer": invoice.msisdn,
+                            "button_clicker": sender,
+                        },
+                    )
+                    response_text = (
+                        f"This invoice is for {invoice.msisdn}. "
+                        f"If you are the customer, please use the phone number that received the invoice."
+                    )
                 else:
                     # Invoice is valid for payment - initiate STK Push
                     try:
@@ -244,24 +258,55 @@ async def receive_webhook(
                         # Generate idempotency key
                         idempotency_key = f"{invoice_id}-button-{int(time.time())}"
 
-                        # Check if payment already exists for this invoice (duplicate prevention)
+                        # Check if payment already exists for this invoice (any status) - Enhanced duplicate prevention (Task 4.3)
                         existing_payment_stmt = select(Payment).where(
-                            Payment.invoice_id == invoice_id,
-                            Payment.status == "INITIATED"
-                        )
+                            Payment.invoice_id == invoice_id
+                        ).order_by(Payment.created_at.desc())
                         existing_payment_result = await db.execute(existing_payment_stmt)
                         existing_payment = existing_payment_result.scalar_one_or_none()
 
                         if existing_payment:
-                            logger.info(
-                                "Payment already initiated for this invoice",
-                                extra={"invoice_id": invoice_id, "payment_id": existing_payment.id},
-                            )
-                            response_text = (
-                                "Payment request already sent! Check your phone for the M-PESA prompt. "
-                                "If you didn't receive it, please try again in a moment."
-                            )
-                        else:
+                            if existing_payment.status == "INITIATED":
+                                # Payment in progress
+                                logger.info(
+                                    "Payment already initiated",
+                                    extra={"invoice_id": invoice_id, "payment_id": existing_payment.id},
+                                )
+                                response_text = (
+                                    "Payment request already sent! Check your phone for the M-PESA prompt. "
+                                    "If you didn't receive it, please wait 2 minutes and try again."
+                                )
+                            elif existing_payment.status == "SUCCESS":
+                                # Already paid
+                                response_text = (
+                                    f"This invoice has already been paid. Receipt: {existing_payment.mpesa_receipt or 'N/A'}"
+                                )
+                            elif existing_payment.status == "FAILED":
+                                # Previous attempt failed, check cooldown period
+                                time_since_failure = (datetime.utcnow() - existing_payment.updated_at).total_seconds()
+                                if time_since_failure < 120:  # 2 minutes cooldown
+                                    response_text = (
+                                        f"Previous payment failed. Please wait {int(120 - time_since_failure)} seconds before retrying."
+                                    )
+                                else:
+                                    # Allow retry (continue with STK Push creation)
+                                    logger.info(
+                                        "Retrying payment after previous failure",
+                                        extra={"invoice_id": invoice_id, "previous_payment_id": existing_payment.id},
+                                    )
+                                    # Continue to STK Push initiation (don't set response_text)
+                                    existing_payment = None  # Reset to allow continuation
+                            else:
+                                # Unknown status
+                                logger.warning(
+                                    "Payment exists with unknown status",
+                                    extra={"invoice_id": invoice_id, "status": existing_payment.status},
+                                )
+                                response_text = (
+                                    f"Payment status unclear ({existing_payment.status}). Please contact the merchant."
+                                )
+
+                        if not existing_payment:
                             # Convert amount from cents to whole KES
                             amount_kes = round(invoice.amount_cents / 100)
 
