@@ -196,13 +196,161 @@ async def receive_webhook(
                     extra={"sender": sender, "invoice_id": invoice_id},
                 )
 
-                # For now, just acknowledge - Phase 7 will implement STK Push
-                response_text = (
-                    f"Payment request received for invoice {invoice_id}. "
-                    f"STK Push will be implemented in Phase 7."
-                )
+                # Lookup invoice in database (Task 2.1)
+                from ..models import Invoice, Payment
+                from sqlalchemy import select
+                from ..services.mpesa import MPesaService
+                from uuid import uuid4
+                import time
 
-                # Create MessageLog entry for button click (metadata only - privacy-first)
+                invoice_stmt = select(Invoice).where(Invoice.id == invoice_id)
+                invoice_result = await db.execute(invoice_stmt)
+                invoice = invoice_result.scalar_one_or_none()
+
+                # Validate invoice exists
+                if not invoice:
+                    logger.warning(
+                        "Invoice not found for payment button",
+                        extra={"invoice_id": invoice_id, "sender": sender},
+                    )
+                    response_text = (
+                        f"Invoice {invoice_id} not found. Please contact the merchant."
+                    )
+                # Check if already paid
+                elif invoice.status == "PAID":
+                    logger.info(
+                        "Invoice already paid",
+                        extra={"invoice_id": invoice_id, "sender": sender},
+                    )
+                    response_text = (
+                        f"Invoice {invoice_id} has already been paid. "
+                        f"Receipt: {invoice.pay_ref or 'N/A'}"
+                    )
+                # Validate invoice status allows payment
+                elif invoice.status not in ["SENT", "PENDING"]:
+                    logger.warning(
+                        "Invalid invoice status for payment",
+                        extra={"invoice_id": invoice_id, "status": invoice.status},
+                    )
+                    response_text = (
+                        f"Invoice {invoice_id} cannot be paid (status: {invoice.status}). "
+                        f"Please contact the merchant."
+                    )
+                else:
+                    # Invoice is valid for payment - initiate STK Push
+                    try:
+                        mpesa_service = MPesaService(environment=settings.mpesa_environment)
+
+                        # Generate idempotency key
+                        idempotency_key = f"{invoice_id}-button-{int(time.time())}"
+
+                        # Check if payment already exists for this invoice (duplicate prevention)
+                        existing_payment_stmt = select(Payment).where(
+                            Payment.invoice_id == invoice_id,
+                            Payment.status == "INITIATED"
+                        )
+                        existing_payment_result = await db.execute(existing_payment_stmt)
+                        existing_payment = existing_payment_result.scalar_one_or_none()
+
+                        if existing_payment:
+                            logger.info(
+                                "Payment already initiated for this invoice",
+                                extra={"invoice_id": invoice_id, "payment_id": existing_payment.id},
+                            )
+                            response_text = (
+                                "Payment request already sent! Check your phone for the M-PESA prompt. "
+                                "If you didn't receive it, please try again in a moment."
+                            )
+                        else:
+                            # Convert amount from cents to whole KES
+                            amount_kes = round(invoice.amount_cents / 100)
+
+                            # Create Payment record with status INITIATED
+                            payment = Payment(
+                                id=str(uuid4()),
+                                invoice_id=invoice.id,
+                                method="MPESA_STK",
+                                status="INITIATED",
+                                amount_cents=invoice.amount_cents,
+                                idempotency_key=idempotency_key,
+                                raw_request={},
+                                raw_callback=None,
+                                mpesa_receipt=None,
+                            )
+
+                            db.add(payment)
+                            await db.commit()
+                            await db.refresh(payment)
+
+                            # Prepare STK Push request (M-PESA field limits)
+                            account_reference = invoice.id[:20]  # Max 20 characters
+                            transaction_desc = invoice.description[:20]  # Max 20 characters
+
+                            # Initiate STK Push
+                            stk_response = await mpesa_service.initiate_stk_push(
+                                phone_number=sender,  # Customer's phone (sender of button click)
+                                amount=amount_kes,
+                                account_reference=account_reference,
+                                transaction_desc=transaction_desc,
+                            )
+
+                            # Update payment with raw request and response
+                            payment.raw_request = {
+                                "phone_number": sender,
+                                "amount": amount_kes,
+                                "account_reference": account_reference,
+                                "transaction_desc": transaction_desc,
+                                "stk_response": stk_response,
+                            }
+
+                            # Store CheckoutRequestID and MerchantRequestID for callback matching
+                            payment.checkout_request_id = stk_response.get("CheckoutRequestID")
+                            payment.merchant_request_id = stk_response.get("MerchantRequestID")
+
+                            await db.commit()
+                            await db.refresh(payment)
+
+                            logger.info(
+                                "STK Push initiated from button click",
+                                extra={
+                                    "payment_id": payment.id,
+                                    "invoice_id": invoice.id,
+                                    "customer_msisdn": sender,
+                                },
+                            )
+
+                            response_text = (
+                                f"Check your phone for the M-PESA payment prompt!\n"
+                                f"Amount: KES {amount_kes}\n"
+                                f"You'll receive a receipt once payment is complete."
+                            )
+
+                    except Exception as stk_error:
+                        logger.error(
+                            "Failed to initiate STK Push from button click",
+                            extra={
+                                "error": str(stk_error),
+                                "invoice_id": invoice_id,
+                                "sender": sender,
+                            },
+                            exc_info=True,
+                        )
+                        # Update payment status to FAILED if it was created
+                        if 'payment' in locals():
+                            payment.status = "FAILED"
+                            payment.raw_request = {
+                                "error": str(stk_error),
+                                "phone_number": sender,
+                                "amount": amount_kes if 'amount_kes' in locals() else None,
+                            }
+                            await db.commit()
+
+                        response_text = (
+                            "Failed to initiate payment. Please try again or contact support. "
+                            f"Error: {str(stk_error)}"
+                        )
+
+                # Create MessageLog entry for button click (Task 2.2)
                 try:
                     button_click_log = MessageLog(
                         invoice_id=invoice_id,
@@ -212,6 +360,9 @@ async def receive_webhook(
                         payload={
                             "button_id": message_text,
                             "invoice_id": invoice_id,
+                            "payment_initiated": 'payment' in locals() and payment.status == "INITIATED",
+                            "payment_id": payment.id if 'payment' in locals() else None,
+                            "stk_request_sent": 'stk_response' in locals(),
                             "timestamp": datetime.utcnow().isoformat(),
                         },
                     )
@@ -265,12 +416,153 @@ async def receive_webhook(
                 )
 
             elif command == "invoice":
-                # One-line invoice command (will be implemented in Phase 6)
+                # One-line invoice command: invoice <phone> <amount> <description>
                 logger.info(
                     "One-line invoice command received",
                     extra={"params": params, "sender": sender},
                 )
-                response_text = "One-line invoice creation will be implemented in Phase 6."
+
+                # Check if parser returned an error (Task 1.3)
+                if "error" in params:
+                    response_text = params["error"]
+                    logger.warning(
+                        "One-line invoice validation error",
+                        extra={"error": params["error"], "sender": sender},
+                    )
+                else:
+                    # Task 1.1: Implement invoice creation
+                    # Validate that we have phone (not name)
+                    if "name" in params:
+                        # This should not happen due to Task 1.2, but defensive check
+                        response_text = (
+                            "For quick invoice, please use phone number format:\n"
+                            "invoice 2547XXXXXXXX <amount> <description>"
+                        )
+                    elif "phone" not in params:
+                        response_text = (
+                            "Invalid invoice format. Use:\n"
+                            "invoice <phone> <amount> <description>\n"
+                            "Example: invoice 254712345678 1000 Web design services"
+                        )
+                    else:
+                        # Extract parameters
+                        customer_msisdn = params["phone"]
+                        amount = params.get("amount")
+                        description = params.get("description")
+
+                        # Validate amount
+                        if not amount or amount < 1:
+                            response_text = "Amount must be at least 1 KES"
+                        # Validate description
+                        elif not description or len(description) < 3:
+                            response_text = "Description must be at least 3 characters"
+                        elif len(description) > 120:
+                            response_text = "Description must not exceed 120 characters"
+                        else:
+                            # Create invoice
+                            try:
+                                from ..models import Invoice
+                                from ..schemas import InvoiceCreate
+
+                                invoice_create = InvoiceCreate(
+                                    msisdn=customer_msisdn,
+                                    customer_name=None,  # Not provided in one-line command
+                                    merchant_msisdn=sender,
+                                    amount_cents=amount * 100,  # Convert to cents
+                                    description=description,
+                                )
+
+                                # Generate invoice ID
+                                import random
+                                import time
+                                timestamp = int(time.time())
+                                random_num = random.randint(1000, 9999)
+                                invoice_id = f"INV-{timestamp}-{random_num}"
+
+                                # Calculate VAT (16% of total amount)
+                                # Total amount includes VAT, so VAT = (amount_cents * 16) / 116
+                                vat_amount = int((invoice_create.amount_cents * 16) / 116)
+
+                                # Create invoice record
+                                invoice = Invoice(
+                                    id=invoice_id,
+                                    customer_name=invoice_create.customer_name,
+                                    msisdn=invoice_create.msisdn,
+                                    merchant_msisdn=invoice_create.merchant_msisdn,
+                                    amount_cents=invoice_create.amount_cents,
+                                    vat_amount=vat_amount,
+                                    currency="KES",
+                                    description=invoice_create.description,
+                                    status="PENDING",
+                                    pay_ref=None,
+                                    pay_link=None,
+                                )
+
+                                db.add(invoice)
+                                await db.commit()
+                                await db.refresh(invoice)
+
+                                logger.info(
+                                    "Invoice created from one-line command",
+                                    extra={"invoice_id": invoice.id, "merchant_msisdn": sender},
+                                )
+
+                                # Send invoice to customer
+                                send_success = await whatsapp_service.send_invoice_to_customer(
+                                    invoice_id=invoice.id,
+                                    customer_msisdn=invoice.msisdn,
+                                    customer_name=invoice.customer_name,
+                                    amount_cents=invoice.amount_cents,
+                                    description=invoice.description,
+                                    db_session=db,
+                                )
+
+                                # Update invoice status
+                                if send_success:
+                                    invoice.status = "SENT"
+                                    await db.commit()
+                                    await db.refresh(invoice)
+
+                                    # Send merchant confirmation
+                                    await whatsapp_service.send_merchant_confirmation(
+                                        merchant_msisdn=sender,
+                                        invoice_id=invoice.id,
+                                        customer_msisdn=invoice.msisdn,
+                                        amount_cents=invoice.amount_cents,
+                                        status=invoice.status,
+                                    )
+
+                                    # Override response text (confirmation already sent)
+                                    response_text = None
+                                else:
+                                    logger.warning(
+                                        "Invoice created but failed to send (one-line command)",
+                                        extra={"invoice_id": invoice.id},
+                                    )
+                                    response_text = (
+                                        f"Invoice {invoice.id} created but failed to send to customer. "
+                                        f"Status: PENDING. You can try again later."
+                                    )
+
+                            except ValueError as ve:
+                                # Validation error
+                                logger.warning(
+                                    "Validation error in one-line invoice",
+                                    extra={"error": str(ve), "sender": sender},
+                                )
+                                response_text = f"Invalid invoice data: {str(ve)}"
+
+                            except Exception as e:
+                                logger.error(
+                                    "Failed to create invoice from one-line command",
+                                    extra={"error": str(e), "merchant_msisdn": sender},
+                                    exc_info=True,
+                                )
+                                await db.rollback()
+                                response_text = (
+                                    "Failed to create invoice. Please try again or use the guided flow "
+                                    "(send 'invoice' without parameters)."
+                                )
 
             elif command == "remind":
                 # Remind command (will be implemented later)
