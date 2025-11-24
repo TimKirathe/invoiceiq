@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     app_name: str = "InvoiceIQ"
     debug: bool = False
     environment: str = "development"
+    api_base_url: str = "https://invoiceiq-new.fly.dev"  # Default for production
 
     # Pydantic v2 configuration using model_config
     model_config = SettingsConfigDict(
