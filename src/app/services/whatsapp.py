@@ -674,8 +674,14 @@ class WhatsAppService:
         # Convert amount from cents to KES
         amount_kes = amount_cents / 100
 
-        # Format invoice message (keep ≤ 2 lines as per CLAUDE.md)
-        message_text = f"Invoice {invoice_id}\nAmount: KES {amount_kes:.2f} | {description}"
+        # Format invoice message (keep ≤ 3 lines as per CLAUDE.md)
+        # Include link to view invoice details
+        invoice_link = f"{settings.api_base_url}/invoices/{invoice_id}"
+        message_text = (
+            f"Invoice {invoice_id}\n"
+            f"Amount: KES {amount_kes:.2f} | {description}\n"
+            f"View: {invoice_link}"
+        )
 
         # Prepare WhatsApp interactive button payload (360 Dialog endpoint)
         url = f"{self.base_url}/messages"

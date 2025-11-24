@@ -264,10 +264,11 @@ class SMSService:
         # Convert amount from cents to KES
         amount_kes = amount_cents / 100
 
-        # Format SMS message (≤2 lines)
+        # Format SMS message with invoice link
+        invoice_link = f"{settings.api_base_url}/invoices/{invoice_id}"
         message = (
             f"Invoice #{invoice_id} for KES {amount_kes:.2f}. "
-            f"Reply PAY to complete payment. -InvoiceIQ"
+            f"View: {invoice_link} -InvoiceIQ"
         )
 
         try:
