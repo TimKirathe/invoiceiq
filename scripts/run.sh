@@ -9,18 +9,18 @@ if [ -f .env ]; then
     export $(cat .env | grep -v '^#' | xargs)
 fi
 
-# Check if DATABASE_URL is set
-if [ -z "$DATABASE_URL" ]; then
-    echo "ERROR: DATABASE_URL environment variable is not set"
+# Check if Supabase credentials are set
+if [ -z "$SUPABASE_URL" ]; then
+    echo "ERROR: SUPABASE_URL environment variable is not set"
     exit 1
 fi
 
-echo "Database URL configured"
+if [ -z "$SUPABASE_SECRET_KEY" ]; then
+    echo "ERROR: SUPABASE_SECRET_KEY environment variable is not set"
+    exit 1
+fi
 
-# Run database migrations
-echo "Running database migrations..."
-alembic upgrade head
-echo "Database migrations completed"
+echo "Supabase credentials configured"
 
 # Determine host and reload settings based on environment
 if [ "$ENVIRONMENT" = "production" ]; then
