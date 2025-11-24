@@ -40,10 +40,9 @@ ENV PATH="/opt/venv/bin:$PATH"
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 # Copy application code
-COPY alembic.ini .
-COPY alembic ./alembic
 COPY src ./src
 COPY scripts ./scripts
+COPY SUPABASE_SETUP.md .
 
 # Make run script executable
 RUN chmod +x scripts/run.sh
