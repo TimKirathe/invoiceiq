@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Backend:** FastAPI (Python)
 - **Database:** Supabase/Postgres
-- **Messaging:** WhatsApp Cloud API, SMS fallback (Africa's Talking/Twilio)
+- **Messaging:** WhatsApp Business API (via 360 Dialog), SMS fallback (Africa's Talking)
 - **Payments:** M-PESA STK Push
 - **Deployment:** Single container (uvicorn) + reverse proxy or serverless
 

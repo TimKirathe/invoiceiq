@@ -17,7 +17,7 @@ InvoiceIQ is a minimal MVP that enables merchants to create and send invoices vi
 
 - **Backend:** FastAPI (Python 3.11+)
 - **Database:** PostgreSQL (via Supabase)
-- **Messaging:** WhatsApp Cloud API, SMS (Africa's Talking)
+- **Messaging:** WhatsApp Business API (via 360 Dialog), SMS (Africa's Talking)
 - **Payments:** M-PESA STK Push (Safaricom Daraja API)
 - **Deployment:** Fly.io with automatic HTTPS
 
@@ -415,7 +415,7 @@ chore(scope): update dependencies
 
 ## Acknowledgments
 
-- **WhatsApp Cloud API** - Meta Platforms, Inc.
+- **WhatsApp Business API** - 360 Dialog (Meta WhatsApp BSP)
 - **M-PESA API** - Safaricom PLC
 - **SMS Provider** - Africa's Talking
 - **Hosting** - Fly.io

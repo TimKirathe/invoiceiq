@@ -16,10 +16,14 @@ class Settings(BaseSettings):
     Environment variable names are case-insensitive.
     """
 
-    # WhatsApp Business API Configuration
+    # WhatsApp Business API Configuration (via 360 Dialog)
     waba_token: str
     waba_phone_id: str
     waba_verify_token: str
+
+    # 360 Dialog Configuration
+    d360_api_key: str
+    d360_webhook_base_url: str = "https://waba-v2.360dialog.io"
 
     # SMS Provider Configuration (Africa's Talking)
     sms_api_key: str
