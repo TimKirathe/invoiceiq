@@ -322,7 +322,7 @@ class MPesaService:
             # Wrap the HTTP call with circuit breaker
             @mpesa_circuit_breaker
             async def make_stk_request() -> Dict[str, Any]:
-                async with httpx.AsyncClient(timeout=10.0) as client:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
                     response = await client.post(stk_url, json=payload, headers=headers)
                     response.raise_for_status()
                     data = response.json()
@@ -351,6 +351,29 @@ class MPesaService:
                 exc_info=True,
             )
             raise
+
+        except httpx.TimeoutException:
+            logger.error(
+                "STK Push request timed out",
+                extra={
+                    "phone_number": phone_number,
+                    "amount": amount,
+                    "timeout": 30.0,
+                },
+                exc_info=True,
+            )
+            raise Exception("Payment service timed out. Please try again.")
+
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "M-PESA API returned error",
+                extra={
+                    "status_code": e.response.status_code,
+                    "response": e.response.text,
+                },
+                exc_info=True,
+            )
+            raise Exception(f"Payment service error: {e.response.status_code}")
 
         except httpx.HTTPError as e:
             logger.error(
