@@ -46,6 +46,51 @@ def generate_invoice_id() -> str:
     return invoice_id
 
 
+@router.get("/{invoice_id}", response_model=InvoiceResponse)
+async def get_invoice(
+    invoice_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Invoice:
+    """
+    Get invoice details by ID.
+
+    This endpoint is public (no authentication required) to allow customers
+    to view invoices they received via WhatsApp link.
+
+    Args:
+        invoice_id: Invoice ID
+        db: Database session
+
+    Returns:
+        Invoice details
+
+    Raises:
+        HTTPException: 404 if invoice not found
+    """
+    from sqlalchemy import select
+
+    invoice_stmt = select(Invoice).where(Invoice.id == invoice_id)
+    invoice_result = await db.execute(invoice_stmt)
+    invoice = invoice_result.scalar_one_or_none()
+
+    if not invoice:
+        logger.warning(
+            "Invoice not found for viewing",
+            extra={"invoice_id": invoice_id},
+        )
+        raise HTTPException(
+            status_code=404,
+            detail="Invoice not found"
+        )
+
+    logger.info(
+        "Invoice viewed",
+        extra={"invoice_id": invoice_id, "status": invoice.status},
+    )
+
+    return invoice
+
+
 @router.post("", response_model=InvoiceResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("10/minute")
 async def create_invoice(
