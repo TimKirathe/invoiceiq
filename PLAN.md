@@ -300,6 +300,7 @@ See Phase 16 for detailed multi-tenancy migration strategy and database schema c
 **Deployment Target:** Fly.io with automatic HTTPS support
 
 **Important Notes:**
+
 - M-PESA Daraja API requires HTTPS endpoints (ngrok no longer supported)
 - Fly.io provides automatic SSL certificates for all deployments
 - Testing webhooks requires deployment to Fly.io staging environment
@@ -308,7 +309,7 @@ See Phase 16 for detailed multi-tenancy migration strategy and database schema c
 
 - [x] Create Dockerfile for Fly.io deployment (Python 3.11+, install dependencies, expose port 8000)
 - [x] Create fly.toml configuration file for Fly.io app settings
-- [ ] Configure Fly.io app with secrets (fly secrets set for all environment variables)
+- [x] Configure Fly.io app with secrets (fly secrets set for all environment variables)
 - [x] Create .dockerignore file to exclude unnecessary files from Docker build
 - [x] Add docker-compose.yml for local development only (app service and postgres service)
 - [x] Create scripts/run.sh for running the application with uvicorn (includes environment variable loading)
@@ -318,9 +319,9 @@ See Phase 16 for detailed multi-tenancy migration strategy and database schema c
 - [x] Add README.md with project overview, quick start guide, Fly.io deployment instructions
 - [x] Create .env.example with all required variables and example values (with placeholders for secrets)
 - [x] Test Docker build locally (docker build -t invoiceiq .)
-- [ ] Deploy to Fly.io staging environment (fly deploy)
-- [ ] Test database migrations on Fly.io (alembic upgrade head runs automatically on deploy)
-- [ ] Verify health checks work (https://<app-name>.fly.dev/healthz and /readyz)
+- [x] Deploy to Fly.io staging environment (fly deploy)
+- [x] Test database migrations on Fly.io (alembic upgrade head runs automatically on deploy)
+- [x] Verify health checks work (https://<app-name>.fly.dev/healthz and /readyz)
 - [ ] Register webhook URLs with WhatsApp Business API using Fly.io HTTPS URL
 - [ ] Register M-PESA callback URL with Safaricom using Fly.io HTTPS URL
 - [ ] Test end-to-end webhook delivery (WhatsApp and M-PESA callbacks to Fly.io app)
@@ -335,16 +336,16 @@ See Phase 16 for detailed multi-tenancy migration strategy and database schema c
 
 **State Machine Note:** For MVP, the in-memory state machine is sufficient for single-instance deployment on Fly.io. For future scaling with multiple instances, consider migrating to Redis or database-backed state storage.
 
-- [ ] Deploy application to Fly.io production (flyctl deploy)
-- [ ] Verify state machine works correctly in production (in-memory is acceptable for MVP single instance)
-- [ ] Configure production database (Supabase Postgres - create project and get connection string)
-- [ ] Run database migrations in production (alembic upgrade head - runs automatically via release_command)
-- [ ] Configure production environment variables in deployment platform
-- [ ] Set up reverse proxy with SSL (Caddy or Nginx) if using VPS deployment
+- [x] Deploy application to Fly.io production (flyctl deploy)
+- [x] Verify state machine works correctly in production (in-memory is acceptable for MVP single instance)
+- [x] Configure production database (Supabase Postgres - create project and get connection string)
+- [x] Run database migrations in production (alembic upgrade head - runs automatically via release_command)
+- [x] Configure production environment variables in deployment platform
+- [x] Set up reverse proxy with SSL (Caddy or Nginx) if using VPS deployment
 - [ ] Register webhook URLs with WhatsApp Business API (verify webhook using production URL)
 - [ ] Register M-PESA callback URL with Safaricom or payment provider
 - [ ] Verify WhatsApp number is active and verified in Meta Business Suite
-- [ ] Perform smoke tests on production: health check, webhook verification, create test invoice
+- [x] Perform smoke tests on production: health check, webhook verification, create test invoice
 - [ ] Execute live end-to-end test: create real invoice � send to test customer number � initiate STK � complete payment � verify receipts
 - [ ] Monitor logs during pilot test for any errors or warnings
 - [ ] Document any issues found and create bug fix tasks
