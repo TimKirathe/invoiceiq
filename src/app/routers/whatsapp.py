@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict
 
 from ..config import settings
-from ..db import get_supabase_client
+from ..db import get_supabase
 from ..schemas import InvoiceCreate
 from ..services.mpesa import MPesaService
 from ..services.whatsapp import WhatsAppService
@@ -152,7 +152,7 @@ async def receive_webhook(
     Returns:
         Dictionary with status: received
     """
-    supabase = get_supabase_client()
+    supabase = get_supabase()
 
     logger.info(
         "Webhook received",

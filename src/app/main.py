@@ -240,7 +240,7 @@ async def readiness_check(supabase=Depends(get_supabase)) -> dict[str, str]:
     """
     try:
         # Test Supabase connection with a simple query
-        result = supabase.table("invoices").select("id").limit(1).execute()
+        _ = supabase.table("invoices").select("id").limit(1).execute()
         logger.info("Readiness check passed - Supabase connected")
         return {"status": "ready", "database": "connected"}
     except Exception as e:

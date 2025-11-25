@@ -41,12 +41,13 @@ class Settings(BaseSettings):
     # Supabase Configuration
     supabase_url: str
     supabase_secret_key: str
+    supabase_publishable_key: str
 
     # Application Configuration
     app_name: str = "InvoiceIQ"
     debug: bool = False
     environment: str = "development"
-    api_base_url: str = "https://invoiceiq-new.fly.dev"  # Default for production
+    api_base_url: str = "https://api.invoiceiq.org"  # Default for production
 
     # Pydantic v2 configuration using model_config
     model_config = SettingsConfigDict(

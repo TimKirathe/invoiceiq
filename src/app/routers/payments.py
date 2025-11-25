@@ -11,7 +11,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ..config import settings
-from ..db import get_supabase_client
+from ..db import get_supabase
 from ..schemas import PaymentCreate, PaymentResponse
 from ..services.idempotency import check_callback_processed
 from ..services.mpesa import MPesaService
@@ -182,7 +182,7 @@ async def initiate_stk_push(
         HTTPException 400: If invoice status is not "SENT"
         HTTPException 500: If STK Push initiation fails
     """
-    supabase = get_supabase_client()
+    supabase = get_supabase()
 
     logger.info(
         "Received STK Push initiate request",
@@ -398,7 +398,7 @@ async def handle_stk_callback(
                 }
             }
     """
-    supabase = get_supabase_client()
+    supabase = get_supabase()
 
     # Always return 200 OK to M-PESA, regardless of processing outcome
     success_response = {"ResultCode": "0", "ResultDesc": "Accepted"}

@@ -19,7 +19,6 @@ from tenacity import (
 )
 
 from ..config import settings
-from ..models import Invoice
 from ..utils.logging import get_logger
 from ..utils.phone import validate_msisdn
 
@@ -196,7 +195,7 @@ class SMSService:
             )
             raise Exception(f"SMS API error: {str(e)}")
 
-    def format_invoice_sms(self, invoice: Invoice) -> str:
+    def format_invoice_sms(self, invoice: Dict[str, Any]) -> str:
         """
         Format an invoice as an SMS message (≤2 lines).
 
@@ -204,7 +203,7 @@ class SMSService:
         Keeps message concise to fit within 2 lines as per CLAUDE.md standards.
 
         Args:
-            invoice: The Invoice object to format
+            invoice: The invoice dictionary with 'id' and 'amount_cents' keys
 
         Returns:
             Formatted SMS message string
@@ -213,18 +212,18 @@ class SMSService:
             "Invoice #INV-123 for KES 500. Reply PAY to complete payment. -InvoiceIQ"
         """
         # Convert amount from cents to KES
-        amount_kes = invoice.amount_cents / 100
+        amount_kes = invoice["amount_cents"] / 100
 
         # Format message (≤2 lines)
         message = (
-            f"Invoice #{invoice.id} for KES {amount_kes:.2f}. "
+            f"Invoice #{invoice['id']} for KES {amount_kes:.2f}. "
             f"Reply PAY to complete payment. -InvoiceIQ"
         )
 
         logger.debug(
             "Invoice SMS formatted",
             extra={
-                "invoice_id": invoice.id,
+                "invoice_id": invoice["id"],
                 "message_length": len(message),
                 "amount_kes": amount_kes,
             },
@@ -253,14 +252,11 @@ class SMSService:
             customer_name: Customer's name (optional)
             amount_cents: Invoice amount in cents
             description: Invoice description
-            db_session: Database session for logging
+            db_session: Supabase client for logging
 
         Returns:
             True if message sent successfully, False otherwise
         """
-        # Import here to avoid circular dependency
-        from ..models import MessageLog
-
         # Convert amount from cents to KES
         amount_kes = amount_cents / 100
 
@@ -285,22 +281,22 @@ class SMSService:
             )
 
             # Create MessageLog entry (metadata only - privacy-first)
-            message_log = MessageLog(
-                invoice_id=invoice_id,
-                channel="SMS",
-                direction="OUT",
-                event="invoice_sent",
-                payload={
+            message_log_data = {
+                "invoice_id": invoice_id,
+                "channel": "SMS",
+                "direction": "OUT",
+                "event": "invoice_sent",
+                "payload": {
                     "status": "sent",
                     "timestamp": datetime.utcnow().isoformat(),
                 },
-            )
-            db_session.add(message_log)
-            await db_session.commit()
+            }
+            message_log_response = db_session.table("message_log").insert(message_log_data).execute()
+            message_log = message_log_response.data[0]
 
             logger.info(
                 "MessageLog created for SMS invoice send",
-                extra={"invoice_id": invoice_id, "message_log_id": message_log.id},
+                extra={"invoice_id": invoice_id, "message_log_id": message_log["id"]},
             )
 
             return True
@@ -318,19 +314,18 @@ class SMSService:
 
             # Create MessageLog entry for failure (metadata only - privacy-first)
             try:
-                message_log = MessageLog(
-                    invoice_id=invoice_id,
-                    channel="SMS",
-                    direction="OUT",
-                    event="invoice_send_failed",
-                    payload={
+                message_log_data = {
+                    "invoice_id": invoice_id,
+                    "channel": "SMS",
+                    "direction": "OUT",
+                    "event": "invoice_send_failed",
+                    "payload": {
                         "status": "failed",
                         "error_type": type(e).__name__,
                         "timestamp": datetime.utcnow().isoformat(),
                     },
-                )
-                db_session.add(message_log)
-                await db_session.commit()
+                }
+                db_session.table("message_log").insert(message_log_data).execute()
             except Exception as log_error:
                 logger.error(
                     "Failed to create MessageLog for failed SMS send",

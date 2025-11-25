@@ -668,9 +668,6 @@ class WhatsAppService:
         Returns:
             True if message sent successfully, False otherwise
         """
-        # Import here to avoid circular dependency
-        from ..models import MessageLog
-
         # Convert amount from cents to KES
         amount_kes = amount_cents / 100
 
@@ -730,24 +727,24 @@ class WhatsAppService:
                 )
 
                 # Create MessageLog entry (metadata only - privacy-first)
-                message_log = MessageLog(
-                    invoice_id=invoice_id,
-                    channel="WHATSAPP",
-                    direction="OUT",
-                    event="invoice_sent",
-                    payload={
+                message_log_data = {
+                    "invoice_id": invoice_id,
+                    "channel": "WHATSAPP",
+                    "direction": "OUT",
+                    "event": "invoice_sent",
+                    "payload": {
                         "message_id": response_data.get("messages", [{}])[0].get("id"),
                         "status": "sent",
                         "status_code": response.status_code,
                         "timestamp": datetime.utcnow().isoformat(),
                     },
-                )
-                db_session.add(message_log)
-                await db_session.commit()
+                }
+                message_log_response = db_session.table("message_log").insert(message_log_data).execute()
+                message_log = message_log_response.data[0]
 
                 logger.info(
                     "MessageLog created for invoice send",
-                    extra={"invoice_id": invoice_id, "message_log_id": message_log.id},
+                    extra={"invoice_id": invoice_id, "message_log_id": message_log["id"]},
                 )
 
                 return True
@@ -765,20 +762,19 @@ class WhatsAppService:
             )
             # Create MessageLog entry for failure (metadata only - privacy-first)
             try:
-                message_log = MessageLog(
-                    invoice_id=invoice_id,
-                    channel="WHATSAPP",
-                    direction="OUT",
-                    event="invoice_send_failed",
-                    payload={
+                message_log_data = {
+                    "invoice_id": invoice_id,
+                    "channel": "WHATSAPP",
+                    "direction": "OUT",
+                    "event": "invoice_send_failed",
+                    "payload": {
                         "status": "failed",
                         "status_code": e.response.status_code,
                         "error_type": "http_error",
                         "timestamp": datetime.utcnow().isoformat(),
                     },
-                )
-                db_session.add(message_log)
-                await db_session.commit()
+                }
+                db_session.table("message_log").insert(message_log_data).execute()
             except Exception as log_error:
                 logger.error(
                     "Failed to create MessageLog for failed invoice send",
@@ -794,19 +790,18 @@ class WhatsAppService:
             )
             # Create MessageLog entry for failure (metadata only - privacy-first)
             try:
-                message_log = MessageLog(
-                    invoice_id=invoice_id,
-                    channel="WHATSAPP",
-                    direction="OUT",
-                    event="invoice_send_failed",
-                    payload={
+                message_log_data = {
+                    "invoice_id": invoice_id,
+                    "channel": "WHATSAPP",
+                    "direction": "OUT",
+                    "event": "invoice_send_failed",
+                    "payload": {
                         "status": "failed",
                         "error_type": "network_error",
                         "timestamp": datetime.utcnow().isoformat(),
                     },
-                )
-                db_session.add(message_log)
-                await db_session.commit()
+                }
+                db_session.table("message_log").insert(message_log_data).execute()
             except Exception as log_error:
                 logger.error(
                     "Failed to create MessageLog for failed invoice send",
@@ -836,19 +831,18 @@ class WhatsAppService:
             )
             # Create MessageLog entry for failure (metadata only - privacy-first)
             try:
-                message_log = MessageLog(
-                    invoice_id=invoice_id,
-                    channel="WHATSAPP",
-                    direction="OUT",
-                    event="invoice_send_failed",
-                    payload={
+                message_log_data = {
+                    "invoice_id": invoice_id,
+                    "channel": "WHATSAPP",
+                    "direction": "OUT",
+                    "event": "invoice_send_failed",
+                    "payload": {
                         "status": "failed",
                         "error_type": "unexpected_error",
                         "timestamp": datetime.utcnow().isoformat(),
                     },
-                )
-                db_session.add(message_log)
-                await db_session.commit()
+                }
+                db_session.table("message_log").insert(message_log_data).execute()
             except Exception as log_error:
                 logger.error(
                     "Failed to create MessageLog for failed invoice send",
@@ -949,9 +943,6 @@ class WhatsAppService:
         Returns:
             True if message sent successfully, False otherwise
         """
-        # Import here to avoid circular dependency
-        from ..models import MessageLog
-
         # Format receipt message (keep ≤ 2 lines as per CLAUDE.md)
         message_text = (
             f"✓ Payment received! Receipt: {mpesa_receipt}\n"
@@ -971,22 +962,22 @@ class WhatsAppService:
             )
 
             # Create MessageLog entry (metadata only - privacy-first)
-            message_log = MessageLog(
-                invoice_id=invoice_id,
-                channel="WHATSAPP",
-                direction="OUT",
-                event="receipt_sent_customer",
-                payload={
+            message_log_data = {
+                "invoice_id": invoice_id,
+                "channel": "WHATSAPP",
+                "direction": "OUT",
+                "event": "receipt_sent_customer",
+                "payload": {
                     "status": "sent",
                     "timestamp": datetime.utcnow().isoformat(),
                 },
-            )
-            db_session.add(message_log)
-            await db_session.commit()
+            }
+            message_log_response = db_session.table("message_log").insert(message_log_data).execute()
+            message_log = message_log_response.data[0]
 
             logger.info(
                 "MessageLog created for customer receipt",
-                extra={"invoice_id": invoice_id, "message_log_id": message_log.id},
+                extra={"invoice_id": invoice_id, "message_log_id": message_log["id"]},
             )
 
             return True
@@ -1003,19 +994,18 @@ class WhatsAppService:
             )
             # Create MessageLog entry for failure (metadata only - privacy-first)
             try:
-                message_log = MessageLog(
-                    invoice_id=invoice_id,
-                    channel="WHATSAPP",
-                    direction="OUT",
-                    event="receipt_send_failed_customer",
-                    payload={
+                message_log_data = {
+                    "invoice_id": invoice_id,
+                    "channel": "WHATSAPP",
+                    "direction": "OUT",
+                    "event": "receipt_send_failed_customer",
+                    "payload": {
                         "status": "failed",
                         "error_type": type(e).__name__,
                         "timestamp": datetime.utcnow().isoformat(),
                     },
-                )
-                db_session.add(message_log)
-                await db_session.commit()
+                }
+                db_session.table("message_log").insert(message_log_data).execute()
             except Exception as log_error:
                 logger.error(
                     "Failed to create MessageLog for failed customer receipt",
@@ -1049,9 +1039,6 @@ class WhatsAppService:
         Returns:
             True if message sent successfully, False otherwise
         """
-        # Import here to avoid circular dependency
-        from ..models import MessageLog
-
         # Format receipt message (keep ≤ 2 lines as per CLAUDE.md)
         message_text = (
             f"✓ Payment received! Receipt: {mpesa_receipt}\n"
@@ -1072,22 +1059,22 @@ class WhatsAppService:
             )
 
             # Create MessageLog entry (metadata only - privacy-first)
-            message_log = MessageLog(
-                invoice_id=invoice_id,
-                channel="WHATSAPP",
-                direction="OUT",
-                event="receipt_sent_merchant",
-                payload={
+            message_log_data = {
+                "invoice_id": invoice_id,
+                "channel": "WHATSAPP",
+                "direction": "OUT",
+                "event": "receipt_sent_merchant",
+                "payload": {
                     "status": "sent",
                     "timestamp": datetime.utcnow().isoformat(),
                 },
-            )
-            db_session.add(message_log)
-            await db_session.commit()
+            }
+            message_log_response = db_session.table("message_log").insert(message_log_data).execute()
+            message_log = message_log_response.data[0]
 
             logger.info(
                 "MessageLog created for merchant receipt",
-                extra={"invoice_id": invoice_id, "message_log_id": message_log.id},
+                extra={"invoice_id": invoice_id, "message_log_id": message_log["id"]},
             )
 
             return True
@@ -1104,19 +1091,18 @@ class WhatsAppService:
             )
             # Create MessageLog entry for failure (metadata only - privacy-first)
             try:
-                message_log = MessageLog(
-                    invoice_id=invoice_id,
-                    channel="WHATSAPP",
-                    direction="OUT",
-                    event="receipt_send_failed_merchant",
-                    payload={
+                message_log_data = {
+                    "invoice_id": invoice_id,
+                    "channel": "WHATSAPP",
+                    "direction": "OUT",
+                    "event": "receipt_send_failed_merchant",
+                    "payload": {
                         "status": "failed",
                         "error_type": type(e).__name__,
                         "timestamp": datetime.utcnow().isoformat(),
                     },
-                )
-                db_session.add(message_log)
-                await db_session.commit()
+                }
+                db_session.table("message_log").insert(message_log_data).execute()
             except Exception as log_error:
                 logger.error(
                     "Failed to create MessageLog for failed merchant receipt",
@@ -1152,8 +1138,6 @@ class WhatsAppService:
         Returns:
             True if SMS sent successfully, False otherwise
         """
-        # Import here to avoid circular dependency
-        from ..models import MessageLog
         from .sms import SMSService
 
         logger.info(
@@ -1211,19 +1195,18 @@ class WhatsAppService:
 
             # Create MessageLog entry for SMS fallback failure (metadata only - privacy-first)
             try:
-                message_log = MessageLog(
-                    invoice_id=invoice_id,
-                    channel="SMS",
-                    direction="OUT",
-                    event="sms_fallback_failed",
-                    payload={
+                message_log_data = {
+                    "invoice_id": invoice_id,
+                    "channel": "SMS",
+                    "direction": "OUT",
+                    "event": "sms_fallback_failed",
+                    "payload": {
                         "status": "failed",
                         "error_type": type(e).__name__,
                         "timestamp": datetime.utcnow().isoformat(),
                     },
-                )
-                db_session.add(message_log)
-                await db_session.commit()
+                }
+                db_session.table("message_log").insert(message_log_data).execute()
             except Exception as log_error:
                 logger.error(
                     "Failed to create MessageLog for SMS fallback failure",
