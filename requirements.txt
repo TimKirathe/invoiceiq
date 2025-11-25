@@ -29,6 +29,7 @@ mypy==1.8.0
 # Utilities
 python-multipart==0.0.9
 
+phonenumbers==8.13.27  # International phone number parsing
 # Error Handling & Resilience
 tenacity==8.2.3
 slowapi==0.1.9
