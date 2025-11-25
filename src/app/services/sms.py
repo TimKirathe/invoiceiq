@@ -8,6 +8,7 @@ Africa's Talking, with fallback support when WhatsApp delivery fails.
 import logging
 from datetime import datetime
 from typing import Any, Dict, Optional
+from uuid import uuid4
 
 import httpx
 from tenacity import (
@@ -282,6 +283,7 @@ class SMSService:
 
             # Create MessageLog entry (metadata only - privacy-first)
             message_log_data = {
+                "id": str(uuid4()),
                 "invoice_id": invoice_id,
                 "channel": "SMS",
                 "direction": "OUT",
@@ -315,6 +317,7 @@ class SMSService:
             # Create MessageLog entry for failure (metadata only - privacy-first)
             try:
                 message_log_data = {
+                    "id": str(uuid4()),
                     "invoice_id": invoice_id,
                     "channel": "SMS",
                     "direction": "OUT",

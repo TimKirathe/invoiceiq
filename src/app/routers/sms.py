@@ -7,6 +7,7 @@ inbound SMS messages and delivery receipt callbacks.
 
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends
 from supabase import Client
@@ -143,6 +144,7 @@ def receive_inbound_sms(
         # Create MessageLog entry for inbound SMS (metadata only - privacy-first)
         try:
             message_log_data = {
+                "id": str(uuid4()),
                 "invoice_id": None,  # No invoice context yet
                 "channel": "SMS",
                 "direction": "IN",
@@ -233,6 +235,7 @@ def receive_delivery_status(
         # Create MessageLog entry for delivery status (metadata only - privacy-first)
         try:
             message_log_data = {
+                "id": str(uuid4()),
                 "invoice_id": None,  # No invoice context (could be linked in future)
                 "channel": "SMS",
                 "direction": "OUT",

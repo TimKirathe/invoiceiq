@@ -41,7 +41,6 @@ class Settings(BaseSettings):
     # Supabase Configuration
     supabase_url: str
     supabase_secret_key: str
-    supabase_publishable_key: str
 
     # Application Configuration
     app_name: str = "InvoiceIQ"
