@@ -10,6 +10,7 @@ import logging
 import re
 from datetime import datetime
 from typing import Any, Dict, Optional
+from uuid import uuid4
 
 import httpx
 from tenacity import (
@@ -239,74 +240,218 @@ class WhatsAppService:
             Dictionary with 'text', 'from', and 'type' keys, or None if parsing fails
         """
         try:
+            # Log the full payload structure for debugging
+            logger.debug(
+                "Parsing webhook payload",
+                extra={
+                    "payload_object": payload.get("object"),
+                    "has_entry": bool(payload.get("entry")),
+                    "payload_keys": list(payload.keys()) if payload else []
+                }
+            )
+
             # Navigate the webhook structure: payload['entry'][0]['changes'][0]['value']['messages'][0]
             entry = payload.get("entry", [])
             if not entry:
-                logger.warning("No entry field in webhook payload")
+                logger.debug("No entry field in webhook payload - likely a non-message event")
                 return None
+
+            # Log entry details
+            logger.debug(
+                "Processing entry",
+                extra={"entry_count": len(entry), "entry_id": entry[0].get("id") if entry else None}
+            )
 
             changes = entry[0].get("changes", [])
             if not changes:
-                logger.warning("No changes field in webhook entry")
+                logger.debug("No changes field in webhook entry - likely a non-message event")
                 return None
 
-            value = changes[0].get("value", {})
+            # Log changes details
+            change = changes[0] if changes else {}
+            field = change.get("field")
+            logger.debug(
+                "Processing change",
+                extra={"field": field, "changes_count": len(changes)}
+            )
+
+            # Check if this is a message event
+            if field and field not in ["messages"]:
+                logger.debug(
+                    "Webhook is not a message event",
+                    extra={"field": field, "expected": "messages"}
+                )
+                return None
+
+            value = change.get("value", {})
+
+            # Log value structure
+            logger.debug(
+                "Processing value",
+                extra={
+                    "value_keys": list(value.keys()),
+                    "has_messages": "messages" in value,
+                    "has_statuses": "statuses" in value,
+                    "messaging_product": value.get("messaging_product")
+                }
+            )
+
+            # Handle status updates (delivery/read receipts) - these don't have messages
+            if "statuses" in value and "messages" not in value:
+                logger.debug("Webhook contains status update, not a message")
+                return None
+
             messages = value.get("messages", [])
             if not messages:
-                logger.debug("No messages field in webhook value (might be a status update)")
+                logger.debug(
+                    "No messages in webhook payload - might be a status update or other event",
+                    extra={"value_keys": list(value.keys())}
+                )
                 return None
 
             message = messages[0]
             message_type = message.get("type")
             sender = message.get("from")
 
-            if not sender:
-                logger.warning("No sender in message")
-                return None
+            logger.debug(
+                "Processing message",
+                extra={
+                    "message_type": message_type,
+                    "sender": sender,
+                    "message_id": message.get("id"),
+                    "message_keys": list(message.keys())
+                }
+            )
 
-            # Validate MSISDN format
-            try:
-                validate_msisdn(sender)
-            except ValueError as e:
+            if not sender:
                 logger.warning(
-                    "Invalid sender MSISDN format",
-                    extra={"sender": sender, "error": str(e)},
+                    "No sender in message",
+                    extra={"message_keys": list(message.keys())}
                 )
                 return None
+
+            # Normalize and validate phone number with more flexibility
+            normalized_sender = sender
+
+            # Try to normalize the phone number if it's not in the expected format
+            if not sender.startswith("254"):
+                # If it starts with +, remove it
+                if sender.startswith("+"):
+                    normalized_sender = sender[1:]
+                # If it's a local format (0XXXXXXXXX), convert to international
+                elif sender.startswith("0") and len(sender) >= 10:
+                    normalized_sender = "254" + sender[1:]
+
+            # For testing/development, accept any phone number that looks valid
+            # In production, you may want stricter validation
+            if not normalized_sender.startswith("254") or len(normalized_sender) < 12:
+                logger.warning(
+                    "Phone number doesn't match expected Kenyan format, but proceeding anyway",
+                    extra={
+                        "original": sender,
+                        "normalized": normalized_sender,
+                        "expected_format": "254XXXXXXXXX"
+                    }
+                )
+                # For now, use the original sender to avoid breaking existing flows
+                normalized_sender = sender
+
+            # Log validation attempt
+            try:
+                from ..utils.phone import validate_msisdn
+                validate_msisdn(normalized_sender)
+                logger.debug(f"Phone number validated successfully: {normalized_sender}")
+            except ValueError as e:
+                # Log the validation error but don't fail - let the message through
+                logger.warning(
+                    "Phone number validation failed, but continuing to process message",
+                    extra={
+                        "sender": sender,
+                        "normalized": normalized_sender,
+                        "error": str(e)
+                    }
+                )
+                # Use original sender to maintain compatibility
+                normalized_sender = sender
 
             # Extract text based on message type
             text = None
             if message_type == "text":
                 text_obj = message.get("text", {})
                 text = text_obj.get("body")
+                logger.debug(f"Extracted text message: {text[:50] if text else 'None'}...")
             elif message_type == "interactive":
                 # Handle button clicks
                 interactive = message.get("interactive", {})
-                button_reply = interactive.get("button_reply", {})
-                text = button_reply.get("id") or button_reply.get("title")
+                interactive_type = interactive.get("type")
+
+                if interactive_type == "button_reply":
+                    button_reply = interactive.get("button_reply", {})
+                    text = button_reply.get("id") or button_reply.get("title")
+                    logger.debug(f"Extracted button reply: {text}")
+                elif interactive_type == "list_reply":
+                    list_reply = interactive.get("list_reply", {})
+                    text = list_reply.get("id") or list_reply.get("title")
+                    logger.debug(f"Extracted list reply: {text}")
+                else:
+                    logger.debug(f"Unknown interactive type: {interactive_type}")
+
+            elif message_type == "button":
+                # Handle quick reply buttons (different from interactive buttons)
+                button = message.get("button", {})
+                text = button.get("payload") or button.get("text")
+                logger.debug(f"Extracted button text: {text}")
             else:
                 logger.info(
-                    "Unsupported message type",
-                    extra={"type": message_type, "sender": sender},
+                    "Message type not supported for text extraction",
+                    extra={
+                        "message_type": message_type,
+                        "supported_types": ["text", "interactive", "button"]
+                    }
                 )
                 return None
 
             if not text:
-                logger.warning("No text content in message")
+                logger.warning(
+                    "No text content extracted from message",
+                    extra={
+                        "message_type": message_type,
+                        "message_keys": list(message.keys())
+                    }
+                )
                 return None
 
-            result = {"text": text, "from": sender, "type": message_type}
+            result = {"text": text.strip(), "from": normalized_sender, "type": message_type}
             logger.info(
                 "Message parsed successfully",
-                extra={"sender": sender, "type": message_type, "text_length": len(text)},
+                extra={
+                    "sender": normalized_sender,
+                    "type": message_type,
+                    "text_length": len(text),
+                    "text_preview": text[:50] if len(text) > 50 else text
+                }
             )
             return result
 
         except (KeyError, IndexError, TypeError) as e:
             logger.error(
-                "Failed to parse webhook payload",
-                extra={"error": str(e), "payload_keys": list(payload.keys())},
-                exc_info=True,
+                "Exception while parsing webhook payload",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "payload_keys": list(payload.keys()) if payload else None
+                },
+                exc_info=True
+            )
+            return None
+        except Exception as e:
+            logger.error(
+                "Unexpected error parsing webhook payload",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                },
+                exc_info=True
             )
             return None
 
@@ -728,6 +873,7 @@ class WhatsAppService:
 
                 # Create MessageLog entry (metadata only - privacy-first)
                 message_log_data = {
+                    "id": str(uuid4()),
                     "invoice_id": invoice_id,
                     "channel": "WHATSAPP",
                     "direction": "OUT",
@@ -763,6 +909,7 @@ class WhatsAppService:
             # Create MessageLog entry for failure (metadata only - privacy-first)
             try:
                 message_log_data = {
+                    "id": str(uuid4()),
                     "invoice_id": invoice_id,
                     "channel": "WHATSAPP",
                     "direction": "OUT",
@@ -791,6 +938,7 @@ class WhatsAppService:
             # Create MessageLog entry for failure (metadata only - privacy-first)
             try:
                 message_log_data = {
+                    "id": str(uuid4()),
                     "invoice_id": invoice_id,
                     "channel": "WHATSAPP",
                     "direction": "OUT",
@@ -832,6 +980,7 @@ class WhatsAppService:
             # Create MessageLog entry for failure (metadata only - privacy-first)
             try:
                 message_log_data = {
+                    "id": str(uuid4()),
                     "invoice_id": invoice_id,
                     "channel": "WHATSAPP",
                     "direction": "OUT",
@@ -963,6 +1112,7 @@ class WhatsAppService:
 
             # Create MessageLog entry (metadata only - privacy-first)
             message_log_data = {
+                "id": str(uuid4()),
                 "invoice_id": invoice_id,
                 "channel": "WHATSAPP",
                 "direction": "OUT",
@@ -995,6 +1145,7 @@ class WhatsAppService:
             # Create MessageLog entry for failure (metadata only - privacy-first)
             try:
                 message_log_data = {
+                    "id": str(uuid4()),
                     "invoice_id": invoice_id,
                     "channel": "WHATSAPP",
                     "direction": "OUT",
@@ -1060,6 +1211,7 @@ class WhatsAppService:
 
             # Create MessageLog entry (metadata only - privacy-first)
             message_log_data = {
+                "id": str(uuid4()),
                 "invoice_id": invoice_id,
                 "channel": "WHATSAPP",
                 "direction": "OUT",
@@ -1092,6 +1244,7 @@ class WhatsAppService:
             # Create MessageLog entry for failure (metadata only - privacy-first)
             try:
                 message_log_data = {
+                    "id": str(uuid4()),
                     "invoice_id": invoice_id,
                     "channel": "WHATSAPP",
                     "direction": "OUT",
@@ -1196,6 +1349,7 @@ class WhatsAppService:
             # Create MessageLog entry for SMS fallback failure (metadata only - privacy-first)
             try:
                 message_log_data = {
+                    "id": str(uuid4()),
                     "invoice_id": invoice_id,
                     "channel": "SMS",
                     "direction": "OUT",

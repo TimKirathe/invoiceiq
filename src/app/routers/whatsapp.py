@@ -174,6 +174,13 @@ async def receive_webhook(
     # Parse incoming message
     parsed_message = whatsapp_service.parse_incoming_message(payload)
 
+    if not parsed_message:
+        logger.warning(
+            "Message parsing returned None - skipping message handling",
+            extra={"payload": payload}
+        )
+        # Continue to database logging...
+
     if parsed_message:
         sender = parsed_message["from"]
         message_text = parsed_message["text"]
@@ -400,6 +407,7 @@ async def receive_webhook(
                 # Create MessageLog entry for button click (Task 2.2)
                 try:
                     button_click_log_data = {
+                        "id": str(uuid4()),
                         "invoice_id": invoice_id,
                         "channel": "WHATSAPP",
                         "direction": "IN",
@@ -556,6 +564,7 @@ async def receive_webhook(
                                     customer_name=invoice.get("customer_name"),
                                     amount_cents=invoice["amount_cents"],
                                     description=invoice["description"],
+                                    db_session=supabase,
                                 )
 
                                 # Update invoice status
@@ -690,6 +699,7 @@ async def receive_webhook(
                         customer_name=invoice.get("customer_name"),
                         amount_cents=invoice["amount_cents"],
                         description=invoice["description"],
+                        db_session=supabase,
                     )
 
                     # Update invoice status
@@ -730,18 +740,36 @@ async def receive_webhook(
 
         # Send response to user
         if response_text:
+            logger.info(
+                "Attempting to send response to user",
+                extra={
+                    "sender": sender,
+                    "response_length": len(response_text),
+                    "response_preview": response_text[:100] if len(response_text) > 100 else response_text,
+                },
+            )
             try:
                 await whatsapp_service.send_message(sender, response_text)
                 logger.info(
-                    "Response sent to user",
+                    "Response sent to user successfully",
                     extra={"sender": sender, "response_length": len(response_text)},
                 )
             except Exception as send_error:
                 logger.error(
                     "Failed to send response to user",
-                    extra={"error": str(send_error), "sender": sender},
+                    extra={
+                        "error": str(send_error),
+                        "error_type": type(send_error).__name__,
+                        "sender": sender,
+                        "response_text": response_text,
+                    },
                     exc_info=True,
                 )
+        else:
+            logger.info(
+                "No response text to send to user",
+                extra={"sender": sender, "parsed_message": bool(parsed_message)},
+            )
 
     try:
         # Create MessageLog entry (metadata only - privacy-first)
@@ -758,6 +786,7 @@ async def receive_webhook(
             message_id = None
 
         message_log_data = {
+            "id": str(uuid4()),
             "invoice_id": None,  # No invoice context yet
             "channel": "WHATSAPP",
             "direction": "IN",
