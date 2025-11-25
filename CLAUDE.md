@@ -363,3 +363,4 @@ When the user uses `/with-suffix`. The primary reason is **context window preser
 - Upon implementing something that the user has requested do not remove, or change, existing functionality unless it is directly related to the change you are making.
 - Use the documentation-retrieval-server mcp to get up-to-date information concerning the python libraries that you use in this project.
 - YOU MUST RUN THE CODE YOU WRITE THROUGH THE LINTER WHEN YOU FINISH WRITING IT.
+- You MUST use the fly mcp for any of its supported operations when interacting with the Fly.io application associated with this project.
