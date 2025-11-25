@@ -32,34 +32,40 @@ InvoiceIQ is a minimal MVP that enables merchants to create and send invoices vi
 ### Local Development Setup
 
 1. **Clone the repository**
+
    ```bash
-   git clone <repository-url>
-   cd easy-invoice
+   git clone <repository-url> invoiceiq
+   cd invoiceiq
    ```
 
 2. **Create virtual environment**
+
    ```bash
    python -m venv .venv
    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
    ```
 
 3. **Install dependencies**
+
    ```bash
    pip install -r requirements.txt
    ```
 
 4. **Set up environment variables**
+
    ```bash
    cp .env.example .env
    # Edit .env and fill in your credentials
    ```
 
 5. **Run database migrations**
+
    ```bash
    alembic upgrade head
    ```
 
 6. **Start the development server**
+
    ```bash
    uvicorn src.app.main:app --reload --host 0.0.0.0 --port 8000
    ```
@@ -72,6 +78,7 @@ InvoiceIQ is a minimal MVP that enables merchants to create and send invoices vi
 ### Docker Development Setup
 
 1. **Build and run with Docker Compose**
+
    ```bash
    docker-compose up --build
    ```
@@ -92,6 +99,7 @@ InvoiceIQ is a minimal MVP that enables merchants to create and send invoices vi
 ### Deploy to Fly.io
 
 1. **Install Fly.io CLI**
+
    ```bash
    curl -L https://fly.io/install.sh | sh
    flyctl auth login
@@ -107,16 +115,19 @@ InvoiceIQ is a minimal MVP that enables merchants to create and send invoices vi
    - Edit `fly.toml` and set your app name
 
 4. **Launch the app**
+
    ```bash
    flyctl launch
    ```
 
 5. **Configure database secret**
+
    ```bash
    flyctl secrets set DATABASE_URL="postgresql+asyncpg://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?sslmode=require"
    ```
 
 6. **Configure other secrets**
+
    ```bash
    flyctl secrets set \
      WABA_TOKEN="your_token" \
@@ -143,18 +154,18 @@ See `.env.example` for a complete list of required environment variables.
 
 ### Required Configuration
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `WABA_TOKEN` | WhatsApp Business API access token | `EAABsbCS1iHgBO...` |
-| `WABA_PHONE_ID` | WhatsApp phone number ID | `123456789012345` |
-| `WABA_VERIFY_TOKEN` | Webhook verification token | `your_random_token` |
-| `SMS_API_KEY` | SMS provider API key | `atsk_abc123...` |
-| `MPESA_CONSUMER_KEY` | M-PESA consumer key | `abc123...` |
-| `MPESA_CONSUMER_SECRET` | M-PESA consumer secret | `xyz789...` |
-| `MPESA_SHORTCODE` | M-PESA business shortcode | `174379` |
-| `MPESA_PASSKEY` | M-PESA Lipa Na M-PESA passkey | `bfb279f9aa...` |
-| `MPESA_CALLBACK_URL` | M-PESA STK callback URL (HTTPS) | `https://app.fly.dev/payments/stk/callback` |
-| `DATABASE_URL` | Database connection string | `postgresql+asyncpg://...` |
+| Variable                | Description                        | Example                                     |
+| ----------------------- | ---------------------------------- | ------------------------------------------- |
+| `WABA_TOKEN`            | WhatsApp Business API access token | `EAABsbCS1iHgBO...`                         |
+| `WABA_PHONE_ID`         | WhatsApp phone number ID           | `123456789012345`                           |
+| `WABA_VERIFY_TOKEN`     | Webhook verification token         | `your_random_token`                         |
+| `SMS_API_KEY`           | SMS provider API key               | `atsk_abc123...`                            |
+| `MPESA_CONSUMER_KEY`    | M-PESA consumer key                | `abc123...`                                 |
+| `MPESA_CONSUMER_SECRET` | M-PESA consumer secret             | `xyz789...`                                 |
+| `MPESA_SHORTCODE`       | M-PESA business shortcode          | `174379`                                    |
+| `MPESA_PASSKEY`         | M-PESA Lipa Na M-PESA passkey      | `bfb279f9aa...`                             |
+| `MPESA_CALLBACK_URL`    | M-PESA STK callback URL (HTTPS)    | `https://app.fly.dev/payments/stk/callback` |
+| `DATABASE_URL`          | Database connection string         | `postgresql+asyncpg://...`                  |
 
 ## API Endpoints
 
@@ -215,21 +226,25 @@ cancel INV-67890
 ## Testing
 
 ### Run all tests
+
 ```bash
 pytest
 ```
 
 ### Run with coverage
+
 ```bash
 pytest --cov=. --cov-report=html
 ```
 
 ### Run specific test file
+
 ```bash
 pytest tests/test_validators.py
 ```
 
 ### Run integration tests
+
 ```bash
 pytest tests/integration/
 ```
@@ -265,7 +280,7 @@ alembic downgrade -1
 ## Project Structure
 
 ```
-easy-invoice/
+invoiceiq/
 ├── src/
 │   └── app/
 │       ├── main.py              # FastAPI application entry point
@@ -324,6 +339,7 @@ IDLE → COLLECT → READY → SENT → PAYMENT_INIT → PAID/FAILED
 ### Data Model
 
 Three core tables:
+
 - **invoices** - Invoice records with customer info and status
 - **payments** - Payment transactions with M-PESA details
 - **message_log** - Audit trail for all messages (WhatsApp/SMS)
@@ -342,6 +358,7 @@ Three core tables:
 ### Structured Logging
 
 All logs are JSON-formatted with:
+
 - Timestamp (ISO 8601)
 - Log level (INFO, WARNING, ERROR)
 - Correlation ID for request tracing
@@ -357,6 +374,7 @@ All logs are JSON-formatted with:
 ### Monitoring
 
 Access logs and metrics:
+
 ```bash
 # View logs
 flyctl logs -a your-app-name
@@ -368,6 +386,7 @@ curl https://your-app-name.fly.dev/stats/summary
 ## Roadmap
 
 ### Current (MVP)
+
 - ✅ WhatsApp bot for invoice creation
 - ✅ M-PESA STK Push integration
 - ✅ SMS fallback delivery
@@ -375,6 +394,7 @@ curl https://your-app-name.fly.dev/stats/summary
 - ✅ Business metrics tracking
 
 ### Future Enhancements
+
 - [ ] Multi-merchant/multi-tenant support
 - [ ] Web dashboard for merchants
 - [ ] PDF receipt generation
