@@ -14,16 +14,16 @@ from uuid import uuid4
 
 import httpx
 from tenacity import (
+    before_sleep_log,
     retry,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    before_sleep_log,
 )
 
 from ..config import settings
 from ..utils.logging import get_logger
-from ..utils.phone import validate_msisdn
+from ..utils.phone import validate_msisdn, validate_phone_number
 
 # Set up logger
 logger = get_logger(__name__)
@@ -94,7 +94,9 @@ class ConversationStateManager:
             data = {}
 
         # Get current state for transition logging
-        current_state_info = cls.states.get(user_id, {"state": cls.STATE_IDLE, "data": {}})
+        current_state_info = cls.states.get(
+            user_id, {"state": cls.STATE_IDLE, "data": {}}
+        )
         from_state = current_state_info["state"]
 
         # Update state
@@ -177,7 +179,9 @@ def get_user_friendly_error_message(error: Exception) -> str:
     if "invalid" in error_message and "amount" in error_message:
         return "Invalid amount. Please enter a valid number (minimum 1 KES)."
 
-    if "description" in error_message and ("short" in error_message or "long" in error_message):
+    if "description" in error_message and (
+        "short" in error_message or "long" in error_message
+    ):
         return "Description must be between 3 and 120 characters."
 
     # M-PESA specific errors
@@ -239,7 +243,9 @@ class WhatsAppService:
             },
         )
 
-    def parse_incoming_message(self, payload: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    def parse_incoming_message(
+        self, payload: Dict[str, Any]
+    ) -> Optional[Dict[str, str]]:
         """
         Parse an incoming WhatsApp webhook payload to extract message details.
 
@@ -256,25 +262,32 @@ class WhatsAppService:
                 extra={
                     "payload_object": payload.get("object"),
                     "has_entry": bool(payload.get("entry")),
-                    "payload_keys": list(payload.keys()) if payload else []
-                }
+                    "payload_keys": list(payload.keys()) if payload else [],
+                },
             )
 
             # Navigate the webhook structure: payload['entry'][0]['changes'][0]['value']['messages'][0]
             entry = payload.get("entry", [])
             if not entry:
-                logger.debug("No entry field in webhook payload - likely a non-message event")
+                logger.debug(
+                    "No entry field in webhook payload - likely a non-message event"
+                )
                 return None
 
             # Log entry details
             logger.debug(
                 "Processing entry",
-                extra={"entry_count": len(entry), "entry_id": entry[0].get("id") if entry else None}
+                extra={
+                    "entry_count": len(entry),
+                    "entry_id": entry[0].get("id") if entry else None,
+                },
             )
 
             changes = entry[0].get("changes", [])
             if not changes:
-                logger.debug("No changes field in webhook entry - likely a non-message event")
+                logger.debug(
+                    "No changes field in webhook entry - likely a non-message event"
+                )
                 return None
 
             # Log changes details
@@ -282,14 +295,14 @@ class WhatsAppService:
             field = change.get("field")
             logger.debug(
                 "Processing change",
-                extra={"field": field, "changes_count": len(changes)}
+                extra={"field": field, "changes_count": len(changes)},
             )
 
             # Check if this is a message event
             if field and field not in ["messages"]:
                 logger.debug(
                     "Webhook is not a message event",
-                    extra={"field": field, "expected": "messages"}
+                    extra={"field": field, "expected": "messages"},
                 )
                 return None
 
@@ -302,8 +315,8 @@ class WhatsAppService:
                     "value_keys": list(value.keys()),
                     "has_messages": "messages" in value,
                     "has_statuses": "statuses" in value,
-                    "messaging_product": value.get("messaging_product")
-                }
+                    "messaging_product": value.get("messaging_product"),
+                },
             )
 
             # Handle status updates (delivery/read receipts) - these don't have messages
@@ -315,7 +328,7 @@ class WhatsAppService:
             if not messages:
                 logger.debug(
                     "No messages in webhook payload - might be a status update or other event",
-                    extra={"value_keys": list(value.keys())}
+                    extra={"value_keys": list(value.keys())},
                 )
                 return None
 
@@ -329,14 +342,13 @@ class WhatsAppService:
                     "message_type": message_type,
                     "sender": sender,
                     "message_id": message.get("id"),
-                    "message_keys": list(message.keys())
-                }
+                    "message_keys": list(message.keys()),
+                },
             )
 
             if not sender:
                 logger.warning(
-                    "No sender in message",
-                    extra={"message_keys": list(message.keys())}
+                    "No sender in message", extra={"message_keys": list(message.keys())}
                 )
                 return None
 
@@ -360,8 +372,8 @@ class WhatsAppService:
                     extra={
                         "original": sender,
                         "normalized": normalized_sender,
-                        "expected_format": "254XXXXXXXXX"
-                    }
+                        "expected_format": "254XXXXXXXXX",
+                    },
                 )
                 # For now, use the original sender to avoid breaking existing flows
                 normalized_sender = sender
@@ -369,8 +381,11 @@ class WhatsAppService:
             # Log validation attempt
             try:
                 from ..utils.phone import validate_msisdn
+
                 validate_msisdn(normalized_sender)
-                logger.debug(f"Phone number validated successfully: {normalized_sender}")
+                logger.debug(
+                    f"Phone number validated successfully: {normalized_sender}"
+                )
             except ValueError as e:
                 # Log the validation error but don't fail - let the message through
                 logger.warning(
@@ -378,8 +393,8 @@ class WhatsAppService:
                     extra={
                         "sender": sender,
                         "normalized": normalized_sender,
-                        "error": str(e)
-                    }
+                        "error": str(e),
+                    },
                 )
                 # Use original sender to maintain compatibility
                 normalized_sender = sender
@@ -389,7 +404,9 @@ class WhatsAppService:
             if message_type == "text":
                 text_obj = message.get("text", {})
                 text = text_obj.get("body")
-                logger.debug(f"Extracted text message: {text[:50] if text else 'None'}...")
+                logger.debug(
+                    f"Extracted text message: {text[:50] if text else 'None'}..."
+                )
             elif message_type == "interactive":
                 # Handle button clicks
                 interactive = message.get("interactive", {})
@@ -416,8 +433,8 @@ class WhatsAppService:
                     "Message type not supported for text extraction",
                     extra={
                         "message_type": message_type,
-                        "supported_types": ["text", "interactive", "button"]
-                    }
+                        "supported_types": ["text", "interactive", "button"],
+                    },
                 )
                 return None
 
@@ -426,20 +443,24 @@ class WhatsAppService:
                     "No text content extracted from message",
                     extra={
                         "message_type": message_type,
-                        "message_keys": list(message.keys())
-                    }
+                        "message_keys": list(message.keys()),
+                    },
                 )
                 return None
 
-            result = {"text": text.strip(), "from": normalized_sender, "type": message_type}
+            result = {
+                "text": text.strip(),
+                "from": normalized_sender,
+                "type": message_type,
+            }
             logger.info(
                 "Message parsed successfully",
                 extra={
                     "sender": normalized_sender,
                     "type": message_type,
                     "text_length": len(text),
-                    "text_preview": text[:50] if len(text) > 50 else text
-                }
+                    "text_preview": text[:50] if len(text) > 50 else text,
+                },
             )
             return result
 
@@ -449,19 +470,16 @@ class WhatsAppService:
                 extra={
                     "error": str(e),
                     "error_type": type(e).__name__,
-                    "payload_keys": list(payload.keys()) if payload else None
+                    "payload_keys": list(payload.keys()) if payload else None,
                 },
-                exc_info=True
+                exc_info=True,
             )
             return None
         except Exception as e:
             logger.error(
                 "Unexpected error parsing webhook payload",
-                extra={
-                    "error": str(e),
-                    "error_type": type(e).__name__
-                },
-                exc_info=True
+                extra={"error": str(e), "error_type": type(e).__name__},
+                exc_info=True,
             )
             return None
 
@@ -496,13 +514,19 @@ class WhatsAppService:
         remind_pattern = r"^remind\s+(.+)$"
         match = re.match(remind_pattern, text)
         if match:
-            return {"command": "remind", "params": {"invoice_id": match.group(1).strip()}}
+            return {
+                "command": "remind",
+                "params": {"invoice_id": match.group(1).strip()},
+            }
 
         # Cancel command: cancel <invoice_id>
         cancel_pattern = r"^cancel\s+(.+)$"
         match = re.match(cancel_pattern, text)
         if match:
-            return {"command": "cancel", "params": {"invoice_id": match.group(1).strip()}}
+            return {
+                "command": "cancel",
+                "params": {"invoice_id": match.group(1).strip()},
+            }
 
         # One-line invoice command: invoice <phone_or_name> <amount> <desc...>
         # This regex matches: invoice followed by either a phone number or name, then amount, then description
@@ -575,8 +599,8 @@ class WhatsAppService:
         """
         from ..db import get_supabase
         from ..utils.invoice_parser import (
-            parse_line_items,
             parse_due_date,
+            parse_line_items,
         )
 
         state_info = self.state_manager.get_state(user_id)
@@ -594,7 +618,9 @@ class WhatsAppService:
 
         # STATE: IDLE - Start guided flow (now starts with merchant name)
         if current_state == self.state_manager.STATE_IDLE:
-            self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_MERCHANT_NAME)
+            self.state_manager.set_state(
+                user_id, self.state_manager.STATE_COLLECT_MERCHANT_NAME
+            )
             return {
                 "response": "Let's create an invoice!\n\nFirst, what is your business/merchant name? (2-100 characters)",
                 "action": "started",
@@ -609,7 +635,9 @@ class WhatsAppService:
                 }
 
             self.state_manager.update_data(user_id, "merchant_name", text)
-            self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_LINE_ITEMS, data)
+            self.state_manager.set_state(
+                user_id, self.state_manager.STATE_COLLECT_LINE_ITEMS, data
+            )
             return {
                 "response": (
                     "Please enter your line items in the following format:\n\n"
@@ -628,7 +656,9 @@ class WhatsAppService:
             try:
                 line_items = parse_line_items(text)
                 self.state_manager.update_data(user_id, "line_items", line_items)
-                self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_VAT, data)
+                self.state_manager.set_state(
+                    user_id, self.state_manager.STATE_COLLECT_VAT, data
+                )
                 return {
                     "response": (
                         "Would you like to include VAT on this invoice?\n\n"
@@ -651,7 +681,9 @@ class WhatsAppService:
             if text in ["1", "2"] or text_lower in ["yes", "no"]:
                 include_vat = text == "1" or text_lower == "yes"
                 self.state_manager.update_data(user_id, "include_vat", include_vat)
-                self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_DUE_DATE, data)
+                self.state_manager.set_state(
+                    user_id, self.state_manager.STATE_COLLECT_DUE_DATE, data
+                )
                 return {
                     "response": (
                         "When is this invoice due?\n\n"
@@ -676,9 +708,11 @@ class WhatsAppService:
             try:
                 due_date_formatted = parse_due_date(text)
                 self.state_manager.update_data(user_id, "due_date", due_date_formatted)
-                self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_PHONE, data)
+                self.state_manager.set_state(
+                    user_id, self.state_manager.STATE_COLLECT_PHONE, data
+                )
                 return {
-                    "response": "Great! Now, please send the customer's phone number (format: 2547XXXXXXXX):",
+                    "response": "Great! Now, please send the customer's phone number with country code (e.g., 254712345678 for Kenya, 447123456789 for UK):",
                     "action": "due_date_collected",
                 }
             except ValueError as e:
@@ -687,10 +721,10 @@ class WhatsAppService:
                     "action": "validation_error",
                 }
 
-        # STATE: COLLECT_PHONE - Validate and store phone
+        # STATE: COLLECT_PHONE - Validate and store phone (supports international numbers)
         elif current_state == self.state_manager.STATE_COLLECT_PHONE:
             try:
-                validated_phone = validate_msisdn(text)
+                validated_phone = validate_phone_number(text)  # Supports any country
                 self.state_manager.update_data(user_id, "phone", validated_phone)
                 self.state_manager.set_state(
                     user_id, self.state_manager.STATE_COLLECT_NAME, data
@@ -699,9 +733,9 @@ class WhatsAppService:
                     "response": "Perfect! What is the customer's name? (or send '-' to skip)",
                     "action": "phone_collected",
                 }
-            except ValueError:
+            except ValueError as e:
                 return {
-                    "response": "Invalid phone number. Please use format 2547XXXXXXXX",
+                    "response": f"Invalid phone number. Please try again with country code (e.g., 254712345678 or +254712345678):\n{str(e)}",
                     "action": "validation_error",
                 }
 
@@ -723,7 +757,7 @@ class WhatsAppService:
             )
             return {
                 "response": (
-                    "How would you like the customer to pay via M-PESA?\n"
+                    "How would you like to receive the payment via M-PESA?\n"
                     "Reply with:\n\n"
                     "1 – Paybill\n"
                     "2 – Till Number\n"
@@ -757,14 +791,18 @@ class WhatsAppService:
                     .execute()
                 )
                 saved_methods = saved_response.data if saved_response.data else []
-                self.state_manager.update_data(user_id, "saved_paybill_methods", saved_methods)
+                self.state_manager.update_data(
+                    user_id, "saved_paybill_methods", saved_methods
+                )
 
                 if saved_methods:
                     # Show saved methods
-                    methods_list = "\n".join([
-                        f"{idx+1} - Paybill Number: {m['paybill_number']}; Account Number: {m['account_number']}"
-                        for idx, m in enumerate(saved_methods)
-                    ])
+                    methods_list = "\n".join(
+                        [
+                            f"{idx + 1} - Paybill Number: {m['paybill_number']}; Account Number: {m['account_number']}"
+                            for idx, m in enumerate(saved_methods)
+                        ]
+                    )
                     response_msg = (
                         f"Select the paybill you want to use:\n\n"
                         f"{methods_list}\n\n"
@@ -773,7 +811,9 @@ class WhatsAppService:
                 else:
                     response_msg = "Please enter your paybill number:"
 
-                self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_PAYBILL_DETAILS, data)
+                self.state_manager.set_state(
+                    user_id, self.state_manager.STATE_COLLECT_PAYBILL_DETAILS, data
+                )
                 return {
                     "response": response_msg,
                     "action": "mpesa_method_selected",
@@ -789,14 +829,18 @@ class WhatsAppService:
                     .execute()
                 )
                 saved_methods = saved_response.data if saved_response.data else []
-                self.state_manager.update_data(user_id, "saved_till_methods", saved_methods)
+                self.state_manager.update_data(
+                    user_id, "saved_till_methods", saved_methods
+                )
 
                 if saved_methods:
                     # Show saved methods
-                    methods_list = "\n".join([
-                        f"{idx+1} - Till Number: {m['till_number']}"
-                        for idx, m in enumerate(saved_methods)
-                    ])
+                    methods_list = "\n".join(
+                        [
+                            f"{idx + 1} - Till Number: {m['till_number']}"
+                            for idx, m in enumerate(saved_methods)
+                        ]
+                    )
                     response_msg = (
                         f"Select the till you want to use:\n\n"
                         f"{methods_list}\n\n"
@@ -805,7 +849,9 @@ class WhatsAppService:
                 else:
                     response_msg = "Please enter your till number:"
 
-                self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_TILL_DETAILS, data)
+                self.state_manager.set_state(
+                    user_id, self.state_manager.STATE_COLLECT_TILL_DETAILS, data
+                )
                 return {
                     "response": response_msg,
                     "action": "mpesa_method_selected",
@@ -821,23 +867,31 @@ class WhatsAppService:
                     .execute()
                 )
                 saved_methods = saved_response.data if saved_response.data else []
-                self.state_manager.update_data(user_id, "saved_phone_methods", saved_methods)
+                self.state_manager.update_data(
+                    user_id, "saved_phone_methods", saved_methods
+                )
 
                 if saved_methods:
                     # Show saved methods
-                    methods_list = "\n".join([
-                        f"{idx+1} - Phone Number: {m['phone_number']}"
-                        for idx, m in enumerate(saved_methods)
-                    ])
+                    methods_list = "\n".join(
+                        [
+                            f"{idx + 1} - Phone Number: {m['phone_number']}"
+                            for idx, m in enumerate(saved_methods)
+                        ]
+                    )
                     response_msg = (
                         f"Select the phone number you want to use:\n\n"
                         f"{methods_list}\n\n"
                         f"Or, please enter the phone number you want to use (format: 2547XXXXXXXX):"
                     )
                 else:
-                    response_msg = "Please enter your phone number (format: 2547XXXXXXXX):"
+                    response_msg = (
+                        "Please enter your phone number (format: 2547XXXXXXXX):"
+                    )
 
-                self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_PHONE_DETAILS, data)
+                self.state_manager.set_state(
+                    user_id, self.state_manager.STATE_COLLECT_PHONE_DETAILS, data
+                )
                 return {
                     "response": response_msg,
                     "action": "mpesa_method_selected",
@@ -850,7 +904,7 @@ class WhatsAppService:
             # If no saved methods, treat input directly as new paybill number
             if len(saved_methods) == 0:
                 # Validate paybill number (5-7 digits)
-                if not re.match(r'^\d{5,7}$', text):
+                if not re.match(r"^\d{5,7}$", text):
                     return {
                         "response": "Invalid paybill number. Must be 5-7 digits. Please try again:",
                         "action": "validation_error",
@@ -858,7 +912,9 @@ class WhatsAppService:
 
                 self.state_manager.update_data(user_id, "mpesa_paybill_number", text)
                 self.state_manager.update_data(user_id, "used_saved_method", False)
-                self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_PAYBILL_ACCOUNT, data)
+                self.state_manager.set_state(
+                    user_id, self.state_manager.STATE_COLLECT_PAYBILL_ACCOUNT, data
+                )
                 return {
                     "response": "Enter the account number the customer should use:",
                     "action": "paybill_number_collected",
@@ -870,25 +926,39 @@ class WhatsAppService:
                 if 1 <= selection_num <= len(saved_methods):
                     # User selected a saved method
                     selected_method = saved_methods[selection_num - 1]
-                    self.state_manager.update_data(user_id, "mpesa_paybill_number", selected_method["paybill_number"])
-                    self.state_manager.update_data(user_id, "mpesa_account_number", selected_method["account_number"])
+                    self.state_manager.update_data(
+                        user_id,
+                        "mpesa_paybill_number",
+                        selected_method["paybill_number"],
+                    )
+                    self.state_manager.update_data(
+                        user_id,
+                        "mpesa_account_number",
+                        selected_method["account_number"],
+                    )
                     self.state_manager.update_data(user_id, "used_saved_method", True)
-                    self.state_manager.set_state(user_id, self.state_manager.STATE_READY, data)
+                    self.state_manager.set_state(
+                        user_id, self.state_manager.STATE_READY, data
+                    )
 
                     # Show preview
                     return self._generate_invoice_preview(data)
                 else:
                     # Number is greater than saved methods - treat as new paybill number
                     # Validate paybill number (5-7 digits)
-                    if not re.match(r'^\d{5,7}$', text):
+                    if not re.match(r"^\d{5,7}$", text):
                         return {
                             "response": "Invalid paybill number. Must be 5-7 digits. Please try again:",
                             "action": "validation_error",
                         }
 
-                    self.state_manager.update_data(user_id, "mpesa_paybill_number", text)
+                    self.state_manager.update_data(
+                        user_id, "mpesa_paybill_number", text
+                    )
                     self.state_manager.update_data(user_id, "used_saved_method", False)
-                    self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_PAYBILL_ACCOUNT, data)
+                    self.state_manager.set_state(
+                        user_id, self.state_manager.STATE_COLLECT_PAYBILL_ACCOUNT, data
+                    )
                     return {
                         "response": "Enter the account number the customer should use:",
                         "action": "paybill_number_collected",
@@ -896,7 +966,7 @@ class WhatsAppService:
             except ValueError:
                 # Not a number - treat as new paybill number
                 # Validate paybill number (5-7 digits)
-                if not re.match(r'^\d{5,7}$', text):
+                if not re.match(r"^\d{5,7}$", text):
                     return {
                         "response": "Invalid paybill number. Must be 5-7 digits. Please try again:",
                         "action": "validation_error",
@@ -904,7 +974,9 @@ class WhatsAppService:
 
                 self.state_manager.update_data(user_id, "mpesa_paybill_number", text)
                 self.state_manager.update_data(user_id, "used_saved_method", False)
-                self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_PAYBILL_ACCOUNT, data)
+                self.state_manager.set_state(
+                    user_id, self.state_manager.STATE_COLLECT_PAYBILL_ACCOUNT, data
+                )
                 return {
                     "response": "Enter the account number the customer should use:",
                     "action": "paybill_number_collected",
@@ -913,14 +985,16 @@ class WhatsAppService:
         # STATE: COLLECT_PAYBILL_ACCOUNT - Collect account number for paybill
         elif current_state == self.state_manager.STATE_COLLECT_PAYBILL_ACCOUNT:
             # Validate account number (1-20 alphanumeric characters)
-            if not re.match(r'^[a-zA-Z0-9\-]{1,20}$', text):
+            if not re.match(r"^[a-zA-Z0-9\-]{1,20}$", text):
                 return {
                     "response": "Invalid account number. Must be 1-20 alphanumeric characters. Please try again:",
                     "action": "validation_error",
                 }
 
             self.state_manager.update_data(user_id, "mpesa_account_number", text)
-            self.state_manager.set_state(user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data)
+            self.state_manager.set_state(
+                user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data
+            )
             return {
                 "response": "Would you like to save this paybill for future invoices?\n\nReply 'yes' or 'no':",
                 "action": "account_number_collected",
@@ -933,7 +1007,7 @@ class WhatsAppService:
             # If no saved methods, treat input directly as new till number
             if len(saved_methods) == 0:
                 # Validate till number (5-7 digits)
-                if not re.match(r'^\d{5,7}$', text):
+                if not re.match(r"^\d{5,7}$", text):
                     return {
                         "response": "Invalid till number. Must be 5-7 digits. Please try again:",
                         "action": "validation_error",
@@ -941,7 +1015,9 @@ class WhatsAppService:
 
                 self.state_manager.update_data(user_id, "mpesa_till_number", text)
                 self.state_manager.update_data(user_id, "used_saved_method", False)
-                self.state_manager.set_state(user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data)
+                self.state_manager.set_state(
+                    user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data
+                )
                 return {
                     "response": "Would you like to save this till number for future invoices?\n\nReply 'yes' or 'no':",
                     "action": "till_number_collected",
@@ -953,16 +1029,20 @@ class WhatsAppService:
                 if 1 <= selection_num <= len(saved_methods):
                     # User selected a saved method
                     selected_method = saved_methods[selection_num - 1]
-                    self.state_manager.update_data(user_id, "mpesa_till_number", selected_method["till_number"])
+                    self.state_manager.update_data(
+                        user_id, "mpesa_till_number", selected_method["till_number"]
+                    )
                     self.state_manager.update_data(user_id, "used_saved_method", True)
-                    self.state_manager.set_state(user_id, self.state_manager.STATE_READY, data)
+                    self.state_manager.set_state(
+                        user_id, self.state_manager.STATE_READY, data
+                    )
 
                     # Show preview
                     return self._generate_invoice_preview(data)
                 else:
                     # Number is greater than saved methods - treat as new till number
                     # Validate till number (5-7 digits)
-                    if not re.match(r'^\d{5,7}$', text):
+                    if not re.match(r"^\d{5,7}$", text):
                         return {
                             "response": "Invalid till number. Must be 5-7 digits. Please try again:",
                             "action": "validation_error",
@@ -970,7 +1050,9 @@ class WhatsAppService:
 
                     self.state_manager.update_data(user_id, "mpesa_till_number", text)
                     self.state_manager.update_data(user_id, "used_saved_method", False)
-                    self.state_manager.set_state(user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data)
+                    self.state_manager.set_state(
+                        user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data
+                    )
                     return {
                         "response": "Would you like to save this till number for future invoices?\n\nReply 'yes' or 'no':",
                         "action": "till_number_collected",
@@ -978,7 +1060,7 @@ class WhatsAppService:
             except ValueError:
                 # Not a number - treat as new till number
                 # Validate till number (5-7 digits)
-                if not re.match(r'^\d{5,7}$', text):
+                if not re.match(r"^\d{5,7}$", text):
                     return {
                         "response": "Invalid till number. Must be 5-7 digits. Please try again:",
                         "action": "validation_error",
@@ -986,7 +1068,9 @@ class WhatsAppService:
 
                 self.state_manager.update_data(user_id, "mpesa_till_number", text)
                 self.state_manager.update_data(user_id, "used_saved_method", False)
-                self.state_manager.set_state(user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data)
+                self.state_manager.set_state(
+                    user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data
+                )
                 return {
                     "response": "Would you like to save this till number for future invoices?\n\nReply 'yes' or 'no':",
                     "action": "till_number_collected",
@@ -1001,9 +1085,13 @@ class WhatsAppService:
                 # Validate phone number
                 try:
                     validated_phone = validate_msisdn(text)
-                    self.state_manager.update_data(user_id, "mpesa_phone_number", validated_phone)
+                    self.state_manager.update_data(
+                        user_id, "mpesa_phone_number", validated_phone
+                    )
                     self.state_manager.update_data(user_id, "used_saved_method", False)
-                    self.state_manager.set_state(user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data)
+                    self.state_manager.set_state(
+                        user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data
+                    )
                     return {
                         "response": "Would you like to save this phone number for future invoices?\n\nReply 'yes' or 'no':",
                         "action": "phone_number_collected",
@@ -1020,9 +1108,13 @@ class WhatsAppService:
                 if 1 <= selection_num <= len(saved_methods):
                     # User selected a saved method
                     selected_method = saved_methods[selection_num - 1]
-                    self.state_manager.update_data(user_id, "mpesa_phone_number", selected_method["phone_number"])
+                    self.state_manager.update_data(
+                        user_id, "mpesa_phone_number", selected_method["phone_number"]
+                    )
                     self.state_manager.update_data(user_id, "used_saved_method", True)
-                    self.state_manager.set_state(user_id, self.state_manager.STATE_READY, data)
+                    self.state_manager.set_state(
+                        user_id, self.state_manager.STATE_READY, data
+                    )
 
                     # Show preview
                     return self._generate_invoice_preview(data)
@@ -1031,9 +1123,17 @@ class WhatsAppService:
                     # Validate phone number
                     try:
                         validated_phone = validate_msisdn(text)
-                        self.state_manager.update_data(user_id, "mpesa_phone_number", validated_phone)
-                        self.state_manager.update_data(user_id, "used_saved_method", False)
-                        self.state_manager.set_state(user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data)
+                        self.state_manager.update_data(
+                            user_id, "mpesa_phone_number", validated_phone
+                        )
+                        self.state_manager.update_data(
+                            user_id, "used_saved_method", False
+                        )
+                        self.state_manager.set_state(
+                            user_id,
+                            self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD,
+                            data,
+                        )
                         return {
                             "response": "Would you like to save this phone number for future invoices?\n\nReply 'yes' or 'no':",
                             "action": "phone_number_collected",
@@ -1048,9 +1148,13 @@ class WhatsAppService:
                 # Validate phone number
                 try:
                     validated_phone = validate_msisdn(text)
-                    self.state_manager.update_data(user_id, "mpesa_phone_number", validated_phone)
+                    self.state_manager.update_data(
+                        user_id, "mpesa_phone_number", validated_phone
+                    )
                     self.state_manager.update_data(user_id, "used_saved_method", False)
-                    self.state_manager.set_state(user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data)
+                    self.state_manager.set_state(
+                        user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data
+                    )
                     return {
                         "response": "Would you like to save this phone number for future invoices?\n\nReply 'yes' or 'no':",
                         "action": "phone_number_collected",
@@ -1066,8 +1170,12 @@ class WhatsAppService:
             text_lower = text.lower()
             if text_lower in ["yes", "no", "y", "n"]:
                 save_method = text_lower in ["yes", "y"]
-                self.state_manager.update_data(user_id, "save_payment_method", save_method)
-                self.state_manager.set_state(user_id, self.state_manager.STATE_READY, data)
+                self.state_manager.update_data(
+                    user_id, "save_payment_method", save_method
+                )
+                self.state_manager.set_state(
+                    user_id, self.state_manager.STATE_READY, data
+                )
 
                 # Show preview
                 return self._generate_invoice_preview(data)
@@ -1101,7 +1209,9 @@ class WhatsAppService:
                 }
 
         # Unknown state (shouldn't happen)
-        logger.error("Unknown state", extra={"state": current_state, "user_id": user_id})
+        logger.error(
+            "Unknown state", extra={"state": current_state, "user_id": user_id}
+        )
         self.state_manager.clear_state(user_id)
         return {
             "response": "An error occurred. Please start again by sending 'invoice'.",
@@ -1118,7 +1228,10 @@ class WhatsAppService:
         Returns:
             Dictionary with response and action
         """
-        from ..utils.invoice_parser import format_line_items_preview, calculate_invoice_totals
+        from ..utils.invoice_parser import (
+            calculate_invoice_totals,
+            format_line_items_preview,
+        )
 
         # Extract data
         merchant_name = data.get("merchant_name")
@@ -1163,22 +1276,21 @@ class WhatsAppService:
         if include_vat:
             preview_lines.append(f"VAT (16%): KES {vat_kes:,.2f}")
 
-        preview_lines.extend([
-            f"Total: KES {total_kes:,.2f}",
-            f"\nInvoice Due: {due_date}",
-            f"\nCustomer: {customer_name}",
-            f"Phone: {customer_phone}",
-            "\nM-PESA Payment Details:",
-            mpesa_details,
-            "\nSend 'confirm' to proceed or 'cancel' to start over."
-        ])
+        preview_lines.extend(
+            [
+                f"Total: KES {total_kes:,.2f}",
+                f"\nInvoice Due: {due_date}",
+                f"\nCustomer: {customer_name}",
+                f"Phone: {customer_phone}",
+                "\nM-PESA Payment Details:",
+                mpesa_details,
+                "\nSend 'confirm' to proceed or 'cancel' to start over.",
+            ]
+        )
 
         preview = "\n".join(preview_lines)
 
-        return {
-            "response": preview,
-            "action": "ready"
-        }
+        return {"response": preview, "action": "ready"}
 
     @retry(
         retry=retry_if_exception_type((httpx.RequestError, httpx.TimeoutException)),
@@ -1246,7 +1358,9 @@ class WhatsAppService:
                 },
                 exc_info=True,
             )
-            raise Exception(f"WhatsApp API error: {e.response.status_code} - {e.response.text}")
+            raise Exception(
+                f"WhatsApp API error: {e.response.status_code} - {e.response.text}"
+            )
 
         except httpx.RequestError as e:
             logger.error(
@@ -1299,7 +1413,10 @@ class WhatsAppService:
 
         # If invoice object is provided, use WhatsApp template (new guided flow)
         if invoice:
-            from ..utils.invoice_parser import format_line_items_for_template, format_mpesa_details
+            from ..utils.invoice_parser import (
+                format_line_items_for_template,
+                format_mpesa_details,
+            )
 
             # Extract invoice fields
             merchant_name = invoice.get("merchant_name", "Unknown Merchant")
@@ -1309,7 +1426,11 @@ class WhatsAppService:
             total_cents = invoice.get("total_cents", amount_cents)
 
             # Format line items for template (40-char threshold)
-            invoice_for = format_line_items_for_template(line_items) if line_items else "Various items"
+            invoice_for = (
+                format_line_items_for_template(line_items)
+                if line_items
+                else "Various items"
+            )
 
             # Format M-PESA details
             mpesa_details = format_mpesa_details(
@@ -1317,7 +1438,7 @@ class WhatsAppService:
                 paybill_number=invoice.get("mpesa_paybill_number"),
                 account_number=invoice.get("mpesa_account_number"),
                 till_number=invoice.get("mpesa_till_number"),
-                phone_number=invoice.get("mpesa_phone_number")
+                phone_number=invoice.get("mpesa_phone_number"),
             )
 
             # Format total amount
@@ -1339,22 +1460,25 @@ class WhatsAppService:
                                 {"type": "text", "text": invoice_id},
                                 {"type": "text", "text": merchant_name},
                                 {"type": "text", "text": invoice_for},
-                                {"type": "text", "text": "Yes" if invoice.get("include_vat") else "No"},
+                                {
+                                    "type": "text",
+                                    "text": "Yes"
+                                    if invoice.get("include_vat")
+                                    else "No",
+                                },
                                 {"type": "text", "text": invoice_total},
                                 {"type": "text", "text": due_date},
-                                {"type": "text", "text": mpesa_details}
-                            ]
+                                {"type": "text", "text": mpesa_details},
+                            ],
                         },
                         {
                             "type": "button",
                             "sub_type": "url",
                             "index": "0",
-                            "parameters": [
-                                {"type": "text", "text": invoice_id}
-                            ]
-                        }
-                    ]
-                }
+                            "parameters": [{"type": "text", "text": invoice_id}],
+                        },
+                    ],
+                },
             }
 
         else:
@@ -1374,26 +1498,26 @@ class WhatsAppService:
                 "type": "interactive",
                 "interactive": {
                     "type": "button",
-                    "body": {
-                        "text": message_text
-                    },
+                    "body": {"text": message_text},
                     "action": {
                         "buttons": [
                             {
                                 "type": "reply",
                                 "reply": {
                                     "id": f"pay_{invoice_id}",
-                                    "title": "Pay with M-PESA"
-                                }
+                                    "title": "Pay with M-PESA",
+                                },
                             }
                         ]
-                    }
-                }
+                    },
+                },
             }
 
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.post(url, json=payload, headers=headers, timeout=30.0)
+                response = await client.post(
+                    url, json=payload, headers=headers, timeout=30.0
+                )
                 response.raise_for_status()
                 response_data = response.json()
 
@@ -1427,12 +1551,17 @@ class WhatsAppService:
                         "timestamp": datetime.utcnow().isoformat(),
                     },
                 }
-                message_log_response = db_session.table("message_log").insert(message_log_data).execute()
+                message_log_response = (
+                    db_session.table("message_log").insert(message_log_data).execute()
+                )
                 message_log = message_log_response.data[0]
 
                 logger.info(
                     "MessageLog created for invoice send",
-                    extra={"invoice_id": invoice_id, "message_log_id": message_log["id"]},
+                    extra={
+                        "invoice_id": invoice_id,
+                        "message_log_id": message_log["id"],
+                    },
                 )
 
                 return True
@@ -1662,7 +1791,9 @@ class WhatsAppService:
                     "timestamp": datetime.utcnow().isoformat(),
                 },
             }
-            message_log_response = db_session.table("message_log").insert(message_log_data).execute()
+            message_log_response = (
+                db_session.table("message_log").insert(message_log_data).execute()
+            )
             message_log = message_log_response.data[0]
 
             logger.info(
@@ -1761,7 +1892,9 @@ class WhatsAppService:
                     "timestamp": datetime.utcnow().isoformat(),
                 },
             }
-            message_log_response = db_session.table("message_log").insert(message_log_data).execute()
+            message_log_response = (
+                db_session.table("message_log").insert(message_log_data).execute()
+            )
             message_log = message_log_response.data[0]
 
             logger.info(
