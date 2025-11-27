@@ -217,3 +217,4 @@ data.db
 test_sms.db
 examples/
 .github/
+invoice_*.txt

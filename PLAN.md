@@ -342,9 +342,9 @@ See Phase 16 for detailed multi-tenancy migration strategy and database schema c
 - [x] Run database migrations in production (alembic upgrade head - runs automatically via release_command)
 - [x] Configure production environment variables in deployment platform
 - [x] Set up reverse proxy with SSL (Caddy or Nginx) if using VPS deployment
-- [ ] Register webhook URLs with WhatsApp Business API (verify webhook using production URL)
+- [x] Register webhook URLs with WhatsApp Business API (verify webhook using production URL)
 - [ ] Register M-PESA callback URL with Safaricom or payment provider
-- [ ] Verify WhatsApp number is active and verified in Meta Business Suite
+- [x] Verify WhatsApp number is active and verified in Meta Business Suite
 - [x] Perform smoke tests on production: health check, webhook verification, create test invoice
 - [ ] Execute live end-to-end test: create real invoice � send to test customer number � initiate STK � complete payment � verify receipts
 - [ ] Monitor logs during pilot test for any errors or warnings

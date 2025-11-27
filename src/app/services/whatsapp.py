@@ -42,10 +42,20 @@ class ConversationStateManager:
 
     # State constants
     STATE_IDLE = "IDLE"
+    STATE_COLLECT_MERCHANT_NAME = "COLLECT_MERCHANT_NAME"
+    STATE_COLLECT_LINE_ITEMS = "COLLECT_LINE_ITEMS"
+    STATE_COLLECT_VAT = "COLLECT_VAT"
+    STATE_COLLECT_DUE_DATE = "COLLECT_DUE_DATE"
     STATE_COLLECT_PHONE = "COLLECT_PHONE"
     STATE_COLLECT_NAME = "COLLECT_NAME"
     STATE_COLLECT_AMOUNT = "COLLECT_AMOUNT"
     STATE_COLLECT_DESCRIPTION = "COLLECT_DESCRIPTION"
+    STATE_COLLECT_MPESA_METHOD = "COLLECT_MPESA_METHOD"
+    STATE_COLLECT_PAYBILL_DETAILS = "COLLECT_PAYBILL_DETAILS"
+    STATE_COLLECT_PAYBILL_ACCOUNT = "COLLECT_PAYBILL_ACCOUNT"
+    STATE_COLLECT_TILL_DETAILS = "COLLECT_TILL_DETAILS"
+    STATE_COLLECT_PHONE_DETAILS = "COLLECT_PHONE_DETAILS"
+    STATE_ASK_SAVE_PAYMENT_METHOD = "ASK_SAVE_PAYMENT_METHOD"
     STATE_READY = "READY"
 
     @classmethod
@@ -563,6 +573,12 @@ class WhatsAppService:
         Returns:
             Dictionary with 'response' (message to send) and optional 'action' keys
         """
+        from ..db import get_supabase
+        from ..utils.invoice_parser import (
+            parse_line_items,
+            parse_due_date,
+        )
+
         state_info = self.state_manager.get_state(user_id)
         current_state = state_info["state"]
         data = state_info["data"]
@@ -576,13 +592,100 @@ class WhatsAppService:
                 "action": "cancelled",
             }
 
-        # STATE: IDLE - Start guided flow
+        # STATE: IDLE - Start guided flow (now starts with merchant name)
         if current_state == self.state_manager.STATE_IDLE:
-            self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_PHONE)
+            self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_MERCHANT_NAME)
             return {
-                "response": "Let's create an invoice!\n\nPlease send the customer's phone number (format: 2547XXXXXXXX):",
+                "response": "Let's create an invoice!\n\nFirst, what is your business/merchant name? (2-100 characters)",
                 "action": "started",
             }
+
+        # STATE: COLLECT_MERCHANT_NAME - Validate and store merchant name
+        elif current_state == self.state_manager.STATE_COLLECT_MERCHANT_NAME:
+            if len(text) < 2 or len(text) > 100:
+                return {
+                    "response": "Merchant name must be between 2 and 100 characters. Please try again:",
+                    "action": "validation_error",
+                }
+
+            self.state_manager.update_data(user_id, "merchant_name", text)
+            self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_LINE_ITEMS, data)
+            return {
+                "response": (
+                    "Please enter your line items in the following format:\n\n"
+                    "Item - Unit Price - Quantity\n\n"
+                    "Example:\n"
+                    "Full Home Deep Clean - 1500 - 3\n"
+                    "Kitchen Deep Clean - 800 - 1\n"
+                    "Bathroom Scrub - 600 - 1\n\n"
+                    "Send all items in one message."
+                ),
+                "action": "merchant_name_collected",
+            }
+
+        # STATE: COLLECT_LINE_ITEMS - Parse and store line items
+        elif current_state == self.state_manager.STATE_COLLECT_LINE_ITEMS:
+            try:
+                line_items = parse_line_items(text)
+                self.state_manager.update_data(user_id, "line_items", line_items)
+                self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_VAT, data)
+                return {
+                    "response": (
+                        "Would you like to include VAT on this invoice?\n\n"
+                        "Reply with:\n"
+                        "1 – Yes, add VAT (16%)\n"
+                        "2 – No, no VAT"
+                    ),
+                    "action": "line_items_collected",
+                }
+            except ValueError as e:
+                return {
+                    "response": f"Error parsing line items: {str(e)}\n\nPlease try again following the format:\nItem - Price - Quantity",
+                    "action": "validation_error",
+                }
+
+        # STATE: COLLECT_VAT - Parse VAT choice
+        elif current_state == self.state_manager.STATE_COLLECT_VAT:
+            # Accept both "1"/"2" and "yes"/"no"
+            text_lower = text.lower()
+            if text in ["1", "2"] or text_lower in ["yes", "no"]:
+                include_vat = text == "1" or text_lower == "yes"
+                self.state_manager.update_data(user_id, "include_vat", include_vat)
+                self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_DUE_DATE, data)
+                return {
+                    "response": (
+                        "When is this invoice due?\n\n"
+                        "Reply with one of:\n"
+                        "0 = Due on receipt\n"
+                        "7 = In 7 days\n"
+                        "14 = In 14 days\n"
+                        "30 = In 30 days\n"
+                        "N = In N days (where N is a number)\n\n"
+                        "Or send a date like: 30/11 or 30/11/2025."
+                    ),
+                    "action": "vat_collected",
+                }
+            else:
+                return {
+                    "response": 'Please reply with "1" or "yes" for VAT, or "2" or "no" for no VAT.',
+                    "action": "validation_error",
+                }
+
+        # STATE: COLLECT_DUE_DATE - Parse and store due date
+        elif current_state == self.state_manager.STATE_COLLECT_DUE_DATE:
+            try:
+                due_date_formatted = parse_due_date(text)
+                self.state_manager.update_data(user_id, "due_date", due_date_formatted)
+                self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_PHONE, data)
+                return {
+                    "response": "Great! Now, please send the customer's phone number (format: 2547XXXXXXXX):",
+                    "action": "due_date_collected",
+                }
+            except ValueError as e:
+                return {
+                    "response": f"Invalid due date: {str(e)}\n\nPlease try again.",
+                    "action": "validation_error",
+                }
 
         # STATE: COLLECT_PHONE - Validate and store phone
         elif current_state == self.state_manager.STATE_COLLECT_PHONE:
@@ -593,7 +696,7 @@ class WhatsAppService:
                     user_id, self.state_manager.STATE_COLLECT_NAME, data
                 )
                 return {
-                    "response": "Great! Now, what is the customer's name? (or send '-' to skip)",
+                    "response": "Perfect! What is the customer's name? (or send '-' to skip)",
                     "action": "phone_collected",
                 }
             except ValueError:
@@ -602,7 +705,7 @@ class WhatsAppService:
                     "action": "validation_error",
                 }
 
-        # STATE: COLLECT_NAME - Store name (or skip)
+        # STATE: COLLECT_NAME - Store name (or skip) - OPTIONAL
         elif current_state == self.state_manager.STATE_COLLECT_NAME:
             if text == "-":
                 self.state_manager.update_data(user_id, "name", None)
@@ -610,67 +713,283 @@ class WhatsAppService:
                 # Validate name length
                 if len(text) < 2 or len(text) > 60:
                     return {
-                        "response": "Name must be between 2 and 60 characters. Please try again:",
+                        "response": "Name must be between 2 and 60 characters. Please try again (or send '-' to skip):",
                         "action": "validation_error",
                     }
                 self.state_manager.update_data(user_id, "name", text)
 
             self.state_manager.set_state(
-                user_id, self.state_manager.STATE_COLLECT_AMOUNT, data
+                user_id, self.state_manager.STATE_COLLECT_MPESA_METHOD, data
             )
             return {
-                "response": "Got it! What is the invoice amount in KES? (whole numbers only)",
+                "response": (
+                    "How would you like the customer to pay via M-PESA?\n"
+                    "Reply with:\n\n"
+                    "1 – Paybill\n"
+                    "2 – Till Number\n"
+                    "3 – Phone Number (Send Money)"
+                ),
                 "action": "name_collected",
             }
 
-        # STATE: COLLECT_AMOUNT - Validate and store amount
-        elif current_state == self.state_manager.STATE_COLLECT_AMOUNT:
-            try:
-                amount = int(text)
-                if amount < 1:
-                    raise ValueError("Amount must be at least 1 KES")
+        # STATE: COLLECT_MPESA_METHOD - Choose payment method
+        elif current_state == self.state_manager.STATE_COLLECT_MPESA_METHOD:
+            if text not in ["1", "2", "3"]:
+                return {
+                    "response": "Please reply with 1 (Paybill), 2 (Till), or 3 (Phone Number).",
+                    "action": "validation_error",
+                }
 
-                # Store amount in cents
-                self.state_manager.update_data(user_id, "amount_cents", amount * 100)
-                self.state_manager.set_state(
-                    user_id, self.state_manager.STATE_COLLECT_DESCRIPTION, data
+            method_map = {"1": "PAYBILL", "2": "TILL", "3": "PHONE"}
+            mpesa_method = method_map[text]
+            self.state_manager.update_data(user_id, "mpesa_method", mpesa_method)
+
+            # Get merchant MSISDN (user_id) to query saved payment methods
+            supabase = get_supabase()
+
+            if mpesa_method == "PAYBILL":
+                # Query saved paybill methods
+                saved_response = (
+                    supabase.table("merchant_payment_methods")
+                    .select("*")
+                    .eq("merchant_msisdn", user_id)
+                    .eq("method_type", "PAYBILL")
+                    .execute()
                 )
+                saved_methods = saved_response.data if saved_response.data else []
+                self.state_manager.update_data(user_id, "saved_paybill_methods", saved_methods)
+
+                if saved_methods:
+                    # Show saved methods
+                    methods_list = "\n".join([
+                        f"{idx+1} - Paybill Number: {m['paybill_number']}; Account Number: {m['account_number']}"
+                        for idx, m in enumerate(saved_methods)
+                    ])
+                    response_msg = (
+                        f"Select the paybill you want to use:\n\n"
+                        f"{methods_list}\n\n"
+                        f"Or, please enter the paybill number you want to use:"
+                    )
+                else:
+                    response_msg = "Please enter your paybill number:"
+
+                self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_PAYBILL_DETAILS, data)
                 return {
-                    "response": "Perfect! Finally, what is this invoice for? (3-120 characters)",
-                    "action": "amount_collected",
+                    "response": response_msg,
+                    "action": "mpesa_method_selected",
                 }
+
+            elif mpesa_method == "TILL":
+                # Query saved till methods
+                saved_response = (
+                    supabase.table("merchant_payment_methods")
+                    .select("*")
+                    .eq("merchant_msisdn", user_id)
+                    .eq("method_type", "TILL")
+                    .execute()
+                )
+                saved_methods = saved_response.data if saved_response.data else []
+                self.state_manager.update_data(user_id, "saved_till_methods", saved_methods)
+
+                if saved_methods:
+                    # Show saved methods
+                    methods_list = "\n".join([
+                        f"{idx+1} - Till Number: {m['till_number']}"
+                        for idx, m in enumerate(saved_methods)
+                    ])
+                    response_msg = (
+                        f"Select the till you want to use:\n\n"
+                        f"{methods_list}\n\n"
+                        f"Or, please enter the till number you want to use:"
+                    )
+                else:
+                    response_msg = "Please enter your till number:"
+
+                self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_TILL_DETAILS, data)
+                return {
+                    "response": response_msg,
+                    "action": "mpesa_method_selected",
+                }
+
+            elif mpesa_method == "PHONE":
+                # Query saved phone methods
+                saved_response = (
+                    supabase.table("merchant_payment_methods")
+                    .select("*")
+                    .eq("merchant_msisdn", user_id)
+                    .eq("method_type", "PHONE")
+                    .execute()
+                )
+                saved_methods = saved_response.data if saved_response.data else []
+                self.state_manager.update_data(user_id, "saved_phone_methods", saved_methods)
+
+                if saved_methods:
+                    # Show saved methods
+                    methods_list = "\n".join([
+                        f"{idx+1} - Phone Number: {m['phone_number']}"
+                        for idx, m in enumerate(saved_methods)
+                    ])
+                    response_msg = (
+                        f"Select the phone number you want to use:\n\n"
+                        f"{methods_list}\n\n"
+                        f"Or, please enter the phone number you want to use (format: 2547XXXXXXXX):"
+                    )
+                else:
+                    response_msg = "Please enter your phone number (format: 2547XXXXXXXX):"
+
+                self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_PHONE_DETAILS, data)
+                return {
+                    "response": response_msg,
+                    "action": "mpesa_method_selected",
+                }
+
+        # STATE: COLLECT_PAYBILL_DETAILS - Handle paybill selection or new entry
+        elif current_state == self.state_manager.STATE_COLLECT_PAYBILL_DETAILS:
+            saved_methods = data.get("saved_paybill_methods", [])
+
+            # Try to parse as selection number
+            try:
+                selection_num = int(text)
+                if 1 <= selection_num <= len(saved_methods):
+                    # User selected a saved method
+                    selected_method = saved_methods[selection_num - 1]
+                    self.state_manager.update_data(user_id, "mpesa_paybill_number", selected_method["paybill_number"])
+                    self.state_manager.update_data(user_id, "mpesa_account_number", selected_method["account_number"])
+                    self.state_manager.update_data(user_id, "used_saved_method", True)
+                    self.state_manager.set_state(user_id, self.state_manager.STATE_READY, data)
+
+                    # Show preview
+                    return self._generate_invoice_preview(data)
+                else:
+                    return {
+                        "response": f"Invalid selection. Please enter a number between 1 and {len(saved_methods)}, or enter a new paybill number.",
+                        "action": "validation_error",
+                    }
             except ValueError:
+                # Not a number - treat as new paybill number
+                # Validate paybill number (5-7 digits)
+                if not re.match(r'^\d{5,7}$', text):
+                    return {
+                        "response": "Invalid paybill number. Must be 5-7 digits. Please try again:",
+                        "action": "validation_error",
+                    }
+
+                self.state_manager.update_data(user_id, "mpesa_paybill_number", text)
+                self.state_manager.update_data(user_id, "used_saved_method", False)
+                self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_PAYBILL_ACCOUNT, data)
                 return {
-                    "response": "Please enter a valid amount (minimum 1 KES)",
+                    "response": "Enter the account number the customer should use:",
+                    "action": "paybill_number_collected",
+                }
+
+        # STATE: COLLECT_PAYBILL_ACCOUNT - Collect account number for paybill
+        elif current_state == self.state_manager.STATE_COLLECT_PAYBILL_ACCOUNT:
+            # Validate account number (1-20 alphanumeric characters)
+            if not re.match(r'^[a-zA-Z0-9\-]{1,20}$', text):
+                return {
+                    "response": "Invalid account number. Must be 1-20 alphanumeric characters. Please try again:",
                     "action": "validation_error",
                 }
 
-        # STATE: COLLECT_DESCRIPTION - Validate and store description
-        elif current_state == self.state_manager.STATE_COLLECT_DESCRIPTION:
-            if len(text) < 3 or len(text) > 120:
+            self.state_manager.update_data(user_id, "mpesa_account_number", text)
+            self.state_manager.set_state(user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data)
+            return {
+                "response": "Would you like to save this paybill for future invoices?\n\nReply 'yes' or 'no':",
+                "action": "account_number_collected",
+            }
+
+        # STATE: COLLECT_TILL_DETAILS - Handle till selection or new entry
+        elif current_state == self.state_manager.STATE_COLLECT_TILL_DETAILS:
+            saved_methods = data.get("saved_till_methods", [])
+
+            # Try to parse as selection number
+            try:
+                selection_num = int(text)
+                if 1 <= selection_num <= len(saved_methods):
+                    # User selected a saved method
+                    selected_method = saved_methods[selection_num - 1]
+                    self.state_manager.update_data(user_id, "mpesa_till_number", selected_method["till_number"])
+                    self.state_manager.update_data(user_id, "used_saved_method", True)
+                    self.state_manager.set_state(user_id, self.state_manager.STATE_READY, data)
+
+                    # Show preview
+                    return self._generate_invoice_preview(data)
+                else:
+                    return {
+                        "response": f"Invalid selection. Please enter a number between 1 and {len(saved_methods)}, or enter a new till number.",
+                        "action": "validation_error",
+                    }
+            except ValueError:
+                # Not a number - treat as new till number
+                # Validate till number (5-7 digits)
+                if not re.match(r'^\d{5,7}$', text):
+                    return {
+                        "response": "Invalid till number. Must be 5-7 digits. Please try again:",
+                        "action": "validation_error",
+                    }
+
+                self.state_manager.update_data(user_id, "mpesa_till_number", text)
+                self.state_manager.update_data(user_id, "used_saved_method", False)
+                self.state_manager.set_state(user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data)
                 return {
-                    "response": "Description must be between 3 and 120 characters. Please try again:",
-                    "action": "validation_error",
+                    "response": "Would you like to save this till number for future invoices?\n\nReply 'yes' or 'no':",
+                    "action": "till_number_collected",
                 }
 
-            self.state_manager.update_data(user_id, "description", text)
-            self.state_manager.set_state(user_id, self.state_manager.STATE_READY, data)
+        # STATE: COLLECT_PHONE_DETAILS - Handle phone selection or new entry
+        elif current_state == self.state_manager.STATE_COLLECT_PHONE_DETAILS:
+            saved_methods = data.get("saved_phone_methods", [])
 
-            # Show preview
-            phone = data.get("phone")
-            name = data.get("name") or "Not provided"
-            amount = data.get("amount_cents", 0) // 100
-            description = text
+            # Try to parse as selection number
+            try:
+                selection_num = int(text)
+                if 1 <= selection_num <= len(saved_methods):
+                    # User selected a saved method
+                    selected_method = saved_methods[selection_num - 1]
+                    self.state_manager.update_data(user_id, "mpesa_phone_number", selected_method["phone_number"])
+                    self.state_manager.update_data(user_id, "used_saved_method", True)
+                    self.state_manager.set_state(user_id, self.state_manager.STATE_READY, data)
 
-            preview = (
-                f"Ready to send!\n\n"
-                f"Customer: {name}\n"
-                f"Phone: {phone}\n"
-                f"Amount: KES {amount}\n"
-                f"Description: {description}\n\n"
-                f"Send 'confirm' to proceed or 'cancel' to start over."
-            )
-            return {"response": preview, "action": "ready"}
+                    # Show preview
+                    return self._generate_invoice_preview(data)
+                else:
+                    return {
+                        "response": f"Invalid selection. Please enter a number between 1 and {len(saved_methods)}, or enter a new phone number.",
+                        "action": "validation_error",
+                    }
+            except ValueError:
+                # Not a number - treat as new phone number
+                # Validate phone number
+                try:
+                    validated_phone = validate_msisdn(text)
+                    self.state_manager.update_data(user_id, "mpesa_phone_number", validated_phone)
+                    self.state_manager.update_data(user_id, "used_saved_method", False)
+                    self.state_manager.set_state(user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data)
+                    return {
+                        "response": "Would you like to save this phone number for future invoices?\n\nReply 'yes' or 'no':",
+                        "action": "phone_number_collected",
+                    }
+                except ValueError:
+                    return {
+                        "response": "Invalid phone number. Please use format 2547XXXXXXXX:",
+                        "action": "validation_error",
+                    }
+
+        # STATE: ASK_SAVE_PAYMENT_METHOD - Ask if merchant wants to save (only for NEW details)
+        elif current_state == self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD:
+            text_lower = text.lower()
+            if text_lower in ["yes", "no", "y", "n"]:
+                save_method = text_lower in ["yes", "y"]
+                self.state_manager.update_data(user_id, "save_payment_method", save_method)
+                self.state_manager.set_state(user_id, self.state_manager.STATE_READY, data)
+
+                # Show preview
+                return self._generate_invoice_preview(data)
+            else:
+                return {
+                    "response": "Please reply 'yes' or 'no':",
+                    "action": "validation_error",
+                }
 
         # STATE: READY - Wait for confirmation
         elif current_state == self.state_manager.STATE_READY:
@@ -701,6 +1020,78 @@ class WhatsAppService:
         return {
             "response": "An error occurred. Please start again by sending 'invoice'.",
             "action": "error",
+        }
+
+    def _generate_invoice_preview(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Generate invoice preview for confirmation.
+
+        Args:
+            data: Invoice data collected so far
+
+        Returns:
+            Dictionary with response and action
+        """
+        from ..utils.invoice_parser import format_line_items_preview, calculate_invoice_totals
+
+        # Extract data
+        merchant_name = data.get("merchant_name")
+        line_items = data.get("line_items", [])
+        include_vat = data.get("include_vat", False)
+        due_date = data.get("due_date")
+        customer_phone = data.get("phone")
+        customer_name = data.get("name") or "Not provided"
+        mpesa_method = data.get("mpesa_method")
+
+        # Calculate totals
+        totals = calculate_invoice_totals(line_items, include_vat)
+        subtotal_kes = totals["subtotal_cents"] / 100
+        vat_kes = totals["vat_cents"] / 100
+        total_kes = totals["total_cents"] / 100
+
+        # Format line items
+        line_items_formatted = format_line_items_preview(line_items)
+
+        # Format M-PESA details
+        mpesa_details = ""
+        if mpesa_method == "PAYBILL":
+            paybill_num = data.get("mpesa_paybill_number")
+            account_num = data.get("mpesa_account_number")
+            mpesa_details = f"Paybill: {paybill_num}\nAccount: {account_num}"
+        elif mpesa_method == "TILL":
+            till_num = data.get("mpesa_till_number")
+            mpesa_details = f"Till Number: {till_num}"
+        elif mpesa_method == "PHONE":
+            phone_num = data.get("mpesa_phone_number")
+            mpesa_details = f"Phone Number: {phone_num}"
+
+        # Build preview
+        preview_lines = [
+            "Ready to send!\n",
+            f"Invoice From: {merchant_name}",
+            "\nLine Items:",
+            line_items_formatted,
+            f"\nSubtotal: KES {subtotal_kes:,.2f}",
+        ]
+
+        if include_vat:
+            preview_lines.append(f"VAT (16%): KES {vat_kes:,.2f}")
+
+        preview_lines.extend([
+            f"Total: KES {total_kes:,.2f}",
+            f"\nInvoice Due: {due_date}",
+            f"\nCustomer: {customer_name}",
+            f"Phone: {customer_phone}",
+            "\nM-PESA Payment Details:",
+            mpesa_details,
+            "\nSend 'confirm' to proceed or 'cancel' to start over."
+        ])
+
+        preview = "\n".join(preview_lines)
+
+        return {
+            "response": preview,
+            "action": "ready"
         }
 
     @retry(
@@ -793,13 +1184,14 @@ class WhatsAppService:
         customer_msisdn: str,
         customer_name: Optional[str],
         amount_cents: int,
-        description: str,
+        description: Optional[str],
         db_session: Any,
+        invoice: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """
-        Send an invoice to a customer via WhatsApp with interactive payment button.
+        Send an invoice to a customer via WhatsApp.
 
-        Formats and sends the invoice message with a "Pay with M-PESA" button.
+        Uses WhatsApp template for new guided flow invoices, or interactive button for legacy one-line invoices.
         Creates a MessageLog entry for the outbound message.
 
         Args:
@@ -807,59 +1199,124 @@ class WhatsAppService:
             customer_msisdn: Customer's phone number (MSISDN)
             customer_name: Customer's name (optional)
             amount_cents: Invoice amount in cents
-            description: Invoice description
+            description: Invoice description (legacy)
             db_session: Database session for logging
+            invoice: Full invoice object (new flow with all fields)
 
         Returns:
             True if message sent successfully, False otherwise
         """
-        # Convert amount from cents to KES
-        amount_kes = amount_cents / 100
-
-        # Format invoice message (keep ≤ 3 lines as per CLAUDE.md)
-        # Include link to view invoice details
-        invoice_link = f"{settings.api_base_url}/invoices/{invoice_id}"
-        message_text = (
-            f"Invoice {invoice_id}\n"
-            f"Amount: KES {amount_kes:.2f} | {description}\n"
-            f"View: {invoice_link}"
-        )
-
-        # Prepare WhatsApp interactive button payload (360 Dialog endpoint)
+        # Prepare WhatsApp API request
         url = f"{self.base_url}/messages"
         headers = {
             "D360-API-KEY": self.api_key,
             "Content-Type": "application/json",
         }
-        payload = {
-            "messaging_product": "whatsapp",
-            "recipient_type": "individual",
-            "to": customer_msisdn,
-            "type": "interactive",
-            "interactive": {
-                "type": "button",
-                "body": {
-                    "text": message_text
-                },
-                "action": {
-                    "buttons": [
+
+        # If invoice object is provided, use WhatsApp template (new guided flow)
+        if invoice:
+            from ..utils.invoice_parser import format_line_items_for_template, format_mpesa_details
+
+            # Extract invoice fields
+            merchant_name = invoice.get("merchant_name", "Unknown Merchant")
+            line_items = invoice.get("line_items", [])
+            due_date = invoice.get("due_date", "Not specified")
+            mpesa_method = invoice.get("mpesa_method")
+            total_cents = invoice.get("total_cents", amount_cents)
+
+            # Format line items for template (40-char threshold)
+            invoice_for = format_line_items_for_template(line_items) if line_items else "Various items"
+
+            # Format M-PESA details
+            mpesa_details = format_mpesa_details(
+                method_type=mpesa_method,
+                paybill_number=invoice.get("mpesa_paybill_number"),
+                account_number=invoice.get("mpesa_account_number"),
+                till_number=invoice.get("mpesa_till_number"),
+                phone_number=invoice.get("mpesa_phone_number")
+            )
+
+            # Format total amount
+            total_kes = total_cents / 100
+            invoice_total = f"KES {total_kes:,.2f}"
+
+            # Build WhatsApp template payload
+            payload = {
+                "to": customer_msisdn,
+                "messaging_product": "whatsapp",
+                "type": "template",
+                "template": {
+                    "name": "invoice_alert",
+                    "language": {"policy": "deterministic", "code": "en"},
+                    "components": [
                         {
-                            "type": "reply",
-                            "reply": {
-                                "id": f"pay_{invoice_id}",
-                                "title": "Pay with M-PESA"
-                            }
+                            "type": "body",
+                            "parameters": [
+                                {"type": "text", "text": invoice_id},
+                                {"type": "text", "text": merchant_name},
+                                {"type": "text", "text": invoice_for},
+                                {"type": "text", "text": "Yes" if invoice.get("include_vat") else "No"},
+                                {"type": "text", "text": invoice_total},
+                                {"type": "text", "text": due_date},
+                                {"type": "text", "text": mpesa_details}
+                            ]
+                        },
+                        {
+                            "type": "button",
+                            "sub_type": "url",
+                            "index": "0",
+                            "parameters": [
+                                {"type": "text", "text": invoice_id}
+                            ]
                         }
                     ]
                 }
             }
-        }
+
+        else:
+            # Legacy: Use interactive button (old one-line command flow)
+            amount_kes = amount_cents / 100
+            invoice_link = f"{settings.api_base_url}/invoices/{invoice_id}"
+            message_text = (
+                f"Invoice {invoice_id}\n"
+                f"Amount: KES {amount_kes:.2f} | {description}\n"
+                f"View: {invoice_link}"
+            )
+
+            payload = {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": customer_msisdn,
+                "type": "interactive",
+                "interactive": {
+                    "type": "button",
+                    "body": {
+                        "text": message_text
+                    },
+                    "action": {
+                        "buttons": [
+                            {
+                                "type": "reply",
+                                "reply": {
+                                    "id": f"pay_{invoice_id}",
+                                    "title": "Pay with M-PESA"
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
 
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(url, json=payload, headers=headers, timeout=30.0)
                 response.raise_for_status()
                 response_data = response.json()
+
+                # Calculate amount_kes for logging
+                amount_kes = amount_cents / 100
+                if invoice:
+                    amount_kes = invoice.get("total_cents", amount_cents) / 100
 
                 logger.info(
                     "Invoice sent to customer successfully",
@@ -868,6 +1325,7 @@ class WhatsAppService:
                         "customer_msisdn": customer_msisdn,
                         "amount_kes": amount_kes,
                         "message_id": response_data.get("messages", [{}])[0].get("id"),
+                        "message_type": "template" if invoice else "interactive",
                     },
                 )
 

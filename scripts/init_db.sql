@@ -13,6 +13,15 @@ CREATE TABLE invoices (
   status TEXT NOT NULL CHECK (status IN ('PENDING','SENT','PAID','CANCELLED','FAILED')),
   pay_ref TEXT,
   pay_link TEXT,
+  -- Invoice template fields (added 2025-11-26)
+  merchant_name TEXT,
+  line_items JSONB,
+  due_date TEXT,
+  mpesa_method TEXT CHECK (mpesa_method IN ('PAYBILL', 'TILL', 'PHONE')),
+  mpesa_paybill_number TEXT,
+  mpesa_account_number TEXT,
+  mpesa_till_number TEXT,
+  mpesa_phone_number TEXT,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -43,6 +52,20 @@ CREATE TABLE message_log (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- merchant_payment_methods table (added 2025-11-26)
+CREATE TABLE merchant_payment_methods (
+  id TEXT PRIMARY KEY,
+  merchant_msisdn TEXT NOT NULL,
+  method_type TEXT NOT NULL CHECK (method_type IN ('PAYBILL', 'TILL', 'PHONE')),
+  paybill_number TEXT,
+  account_number TEXT,
+  till_number TEXT,
+  phone_number TEXT,
+  is_default BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes for common queries
 CREATE INDEX idx_invoices_msisdn ON invoices(msisdn);
 CREATE INDEX idx_invoices_status ON invoices(status);
@@ -55,3 +78,5 @@ CREATE INDEX idx_payments_status ON payments(status);
 CREATE INDEX idx_message_log_invoice_id ON message_log(invoice_id);
 CREATE INDEX idx_message_log_channel ON message_log(channel);
 CREATE INDEX idx_message_log_created_at ON message_log(created_at);
+
+CREATE INDEX idx_merchant_payment_methods_merchant ON merchant_payment_methods(merchant_msisdn);

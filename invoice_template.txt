@@ -13,3 +13,6 @@ M-PESA payment details:
 You can use the button below to view your invoice and make payment via STK push.
 
 If you received this message in error, you can safely ignore it.
+
+Pay Now button url: https://pay.invoiceiq.org/{{1}} [INV-2025-00045]
+

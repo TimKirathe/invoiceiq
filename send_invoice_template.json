@@ -1,0 +1,34 @@
+{
+  "to": "<customer-number",
+  "messaging_product": "whatsapp",
+  "type": "template",
+  "template": {
+    "name": "invoice_alert",
+    "language": { "policy": "deterministic", "code": "en" },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          { "type": "text", "text": "<invoice-id>" },
+          { "type": "text", "text": "<invoice-from>" },
+          { "type": "text", "text": "<invoice-for>" },
+          { "type": "text", "text": "<invoice-vat>" },
+          { "type": "text", "text": "<invoice-total>" },
+          { "type": "text", "text": "<invoice-due>" },
+          { "type": "text", "text": "<invoice-mpesa-details>" }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "<invoice-id>"
+          }
+        ]
+      }
+    ]
+  }
+}

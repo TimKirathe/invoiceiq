@@ -650,35 +650,54 @@ async def receive_webhook(
             if flow_result.get("action") == "confirmed" and flow_result.get("invoice_data"):
                 invoice_data_from_flow = flow_result["invoice_data"]
 
-                # Create InvoiceCreate schema
+                # Import invoice_parser utilities
+                from ..utils.invoice_parser import calculate_invoice_totals
+
+                # Create invoice with all new fields
                 try:
-                    invoice_create = InvoiceCreate(
-                        msisdn=invoice_data_from_flow["phone"],
-                        customer_name=invoice_data_from_flow.get("name"),
-                        merchant_msisdn=sender,  # Merchant is the sender of the message
-                        amount_cents=invoice_data_from_flow["amount_cents"],
-                        description=invoice_data_from_flow["description"],
-                    )
+                    # Extract data from flow
+                    merchant_name = invoice_data_from_flow.get("merchant_name")
+                    line_items = invoice_data_from_flow.get("line_items", [])
+                    include_vat = invoice_data_from_flow.get("include_vat", False)
+                    due_date = invoice_data_from_flow.get("due_date")
+                    customer_phone = invoice_data_from_flow["phone"]
+                    customer_name = invoice_data_from_flow.get("name")
+                    mpesa_method = invoice_data_from_flow.get("mpesa_method")
+                    mpesa_paybill_number = invoice_data_from_flow.get("mpesa_paybill_number")
+                    mpesa_account_number = invoice_data_from_flow.get("mpesa_account_number")
+                    mpesa_till_number = invoice_data_from_flow.get("mpesa_till_number")
+                    mpesa_phone_number = invoice_data_from_flow.get("mpesa_phone_number")
+                    save_payment_method = invoice_data_from_flow.get("save_payment_method", False)
+                    used_saved_method = invoice_data_from_flow.get("used_saved_method", False)
+
+                    # Calculate totals from line items
+                    totals = calculate_invoice_totals(line_items, include_vat)
+                    total_cents = totals["total_cents"]
+                    vat_cents = totals["vat_cents"]
 
                     # Generate invoice ID
                     timestamp = int(time.time())
                     random_num = random.randint(1000, 9999)
                     invoice_id = f"INV-{timestamp}-{random_num}"
 
-                    # Calculate VAT (16% of total amount)
-                    # Total amount includes VAT, so VAT = (amount_cents * 16) / 116
-                    vat_amount = int((invoice_create.amount_cents * 16) / 116)
-
-                    # Create invoice record
+                    # Create invoice record with all new fields
                     invoice_data = {
                         "id": invoice_id,
-                        "customer_name": invoice_create.customer_name,
-                        "msisdn": invoice_create.msisdn,
-                        "merchant_msisdn": invoice_create.merchant_msisdn,
-                        "amount_cents": invoice_create.amount_cents,
-                        "vat_amount": vat_amount,
+                        "merchant_name": merchant_name,
+                        "customer_name": customer_name,
+                        "msisdn": customer_phone,
+                        "merchant_msisdn": sender,
+                        "amount_cents": total_cents,
+                        "vat_amount": vat_cents,
                         "currency": "KES",
-                        "description": invoice_create.description,
+                        "description": None,  # No longer used, replaced by line_items
+                        "line_items": line_items,  # Store as JSONB
+                        "due_date": due_date,
+                        "mpesa_method": mpesa_method,
+                        "mpesa_paybill_number": mpesa_paybill_number,
+                        "mpesa_account_number": mpesa_account_number,
+                        "mpesa_till_number": mpesa_till_number,
+                        "mpesa_phone_number": mpesa_phone_number,
                         "status": "PENDING",
                         "pay_ref": None,
                         "pay_link": None,
@@ -692,14 +711,41 @@ async def receive_webhook(
                         extra={"invoice_id": invoice["id"], "merchant_msisdn": sender},
                     )
 
-                    # Send invoice to customer
+                    # Save payment method if requested and not using saved method
+                    if save_payment_method and not used_saved_method:
+                        try:
+                            payment_method_data = {
+                                "id": str(uuid4()),
+                                "merchant_msisdn": sender,
+                                "method_type": mpesa_method,
+                                "paybill_number": mpesa_paybill_number if mpesa_method == "PAYBILL" else None,
+                                "account_number": mpesa_account_number if mpesa_method == "PAYBILL" else None,
+                                "till_number": mpesa_till_number if mpesa_method == "TILL" else None,
+                                "phone_number": mpesa_phone_number if mpesa_method == "PHONE" else None,
+                                "is_default": False,
+                            }
+                            supabase.table("merchant_payment_methods").insert(payment_method_data).execute()
+                            logger.info(
+                                "Payment method saved",
+                                extra={"merchant_msisdn": sender, "method_type": mpesa_method},
+                            )
+                        except Exception as save_error:
+                            logger.error(
+                                "Failed to save payment method",
+                                extra={"error": str(save_error), "merchant_msisdn": sender},
+                                exc_info=True,
+                            )
+                            # Don't fail invoice creation if payment method save fails
+
+                    # Send invoice to customer (will use WhatsApp template)
                     send_success = await whatsapp_service.send_invoice_to_customer(
                         invoice_id=invoice["id"],
                         customer_msisdn=invoice["msisdn"],
                         customer_name=invoice.get("customer_name"),
                         amount_cents=invoice["amount_cents"],
-                        description=invoice["description"],
+                        description=None,  # Not used anymore with templates
                         db_session=supabase,
+                        invoice=invoice,  # Pass full invoice for template rendering
                     )
 
                     # Update invoice status
