@@ -188,7 +188,6 @@ async def create_invoice(
             customer_msisdn=invoice["msisdn"],
             customer_name=invoice["customer_name"],
             amount_cents=invoice["amount_cents"],
-            description=invoice["description"],
             db_session=supabase,
         )
 

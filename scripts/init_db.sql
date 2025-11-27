@@ -6,10 +6,11 @@
 CREATE TABLE invoices (
   id TEXT PRIMARY KEY,
   customer_name TEXT,
-  msisdn TEXT NOT NULL,
+  msisdn TEXT NOT NULL CHECK (LENGTH(msisdn) = 12),
+  merchant_msisdn TEXT NOT NULL CHECK (LENGTH(merchant_msisdn) = 12),
   amount_cents INTEGER NOT NULL,
+  vat_amount INTEGER NOT NULL DEFAULT 0,
   currency TEXT NOT NULL DEFAULT 'KES',
-  description TEXT,
   status TEXT NOT NULL CHECK (status IN ('PENDING','SENT','PAID','CANCELLED','FAILED')),
   pay_ref TEXT,
   pay_link TEXT,
@@ -68,6 +69,7 @@ CREATE TABLE merchant_payment_methods (
 
 -- Indexes for common queries
 CREATE INDEX idx_invoices_msisdn ON invoices(msisdn);
+CREATE INDEX idx_invoices_merchant ON invoices(merchant_msisdn);
 CREATE INDEX idx_invoices_status ON invoices(status);
 CREATE INDEX idx_invoices_created_at ON invoices(created_at);
 

@@ -238,7 +238,6 @@ class SMSService:
         customer_msisdn: str,
         customer_name: Optional[str],
         amount_cents: int,
-        description: str,
         db_session: Any,
     ) -> bool:
         """
@@ -252,7 +251,6 @@ class SMSService:
             customer_msisdn: Customer's phone number (MSISDN)
             customer_name: Customer's name (optional)
             amount_cents: Invoice amount in cents
-            description: Invoice description
             db_session: Supabase client for logging
 
         Returns:

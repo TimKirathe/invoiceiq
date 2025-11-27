@@ -1236,7 +1236,6 @@ class WhatsAppService:
         customer_msisdn: str,
         customer_name: Optional[str],
         amount_cents: int,
-        description: Optional[str],
         db_session: Any,
         invoice: Optional[Dict[str, Any]] = None,
     ) -> bool:
@@ -1251,7 +1250,6 @@ class WhatsAppService:
             customer_msisdn: Customer's phone number (MSISDN)
             customer_name: Customer's name (optional)
             amount_cents: Invoice amount in cents
-            description: Invoice description (legacy)
             db_session: Database session for logging
             invoice: Full invoice object (new flow with all fields)
 
@@ -1331,7 +1329,7 @@ class WhatsAppService:
             invoice_link = f"{settings.api_base_url}/invoices/{invoice_id}"
             message_text = (
                 f"Invoice {invoice_id}\n"
-                f"Amount: KES {amount_kes:.2f} | {description}\n"
+                f"Amount: KES {amount_kes:.2f}\n"
                 f"View: {invoice_link}"
             )
 
@@ -1476,7 +1474,6 @@ class WhatsAppService:
                 customer_msisdn=customer_msisdn,
                 customer_name=customer_name,
                 amount_cents=amount_cents,
-                description=description,
                 db_session=db_session,
                 whatsapp_error=str(e),
             )
@@ -1518,7 +1515,6 @@ class WhatsAppService:
                 customer_msisdn=customer_msisdn,
                 customer_name=customer_name,
                 amount_cents=amount_cents,
-                description=description,
                 db_session=db_session,
                 whatsapp_error=str(e),
             )
@@ -1779,7 +1775,6 @@ class WhatsAppService:
         customer_msisdn: str,
         customer_name: Optional[str],
         amount_cents: int,
-        description: str,
         db_session: Any,
         whatsapp_error: str,
     ) -> bool:
@@ -1794,7 +1789,6 @@ class WhatsAppService:
             customer_msisdn: Customer's phone number (MSISDN)
             customer_name: Customer's name (optional)
             amount_cents: Invoice amount in cents
-            description: Invoice description
             db_session: Database session for logging
             whatsapp_error: The WhatsApp error message
 
@@ -1822,7 +1816,6 @@ class WhatsAppService:
                 customer_msisdn=customer_msisdn,
                 customer_name=customer_name,
                 amount_cents=amount_cents,
-                description=description,
                 db_session=db_session,
             )
 

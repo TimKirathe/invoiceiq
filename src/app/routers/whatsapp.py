@@ -336,7 +336,7 @@ async def receive_webhook(
 
                             # Prepare STK Push request (M-PESA field limits)
                             account_reference = invoice["id"][:20]  # Max 20 characters
-                            transaction_desc = invoice["description"][:20]  # Max 20 characters
+                            transaction_desc = "Invoice Payment"  # Generic description
 
                             # Initiate STK Push
                             stk_response = await mpesa_service.initiate_stk_push(
@@ -504,16 +504,10 @@ async def receive_webhook(
                         # Extract parameters
                         customer_msisdn = params["phone"]
                         amount = params.get("amount")
-                        description = params.get("description")
 
                         # Validate amount
                         if not amount or amount < 1:
                             response_text = "Amount must be at least 1 KES"
-                        # Validate description
-                        elif not description or len(description) < 3:
-                            response_text = "Description must be at least 3 characters"
-                        elif len(description) > 120:
-                            response_text = "Description must not exceed 120 characters"
                         else:
                             # Create invoice
                             try:
@@ -522,7 +516,6 @@ async def receive_webhook(
                                     customer_name=None,  # Not provided in one-line command
                                     merchant_msisdn=sender,
                                     amount_cents=amount * 100,  # Convert to cents
-                                    description=description,
                                 )
 
                                 # Generate invoice ID
@@ -543,7 +536,6 @@ async def receive_webhook(
                                     "amount_cents": invoice_create.amount_cents,
                                     "vat_amount": vat_amount,
                                     "currency": "KES",
-                                    "description": invoice_create.description,
                                     "status": "PENDING",
                                     "pay_ref": None,
                                     "pay_link": None,
@@ -563,7 +555,6 @@ async def receive_webhook(
                                     customer_msisdn=invoice["msisdn"],
                                     customer_name=invoice.get("customer_name"),
                                     amount_cents=invoice["amount_cents"],
-                                    description=invoice["description"],
                                     db_session=supabase,
                                 )
 
@@ -690,7 +681,6 @@ async def receive_webhook(
                         "amount_cents": total_cents,
                         "vat_amount": vat_cents,
                         "currency": "KES",
-                        "description": None,  # No longer used, replaced by line_items
                         "line_items": line_items,  # Store as JSONB
                         "due_date": due_date,
                         "mpesa_method": mpesa_method,
@@ -743,7 +733,6 @@ async def receive_webhook(
                         customer_msisdn=invoice["msisdn"],
                         customer_name=invoice.get("customer_name"),
                         amount_cents=invoice["amount_cents"],
-                        description=None,  # Not used anymore with templates
                         db_session=supabase,
                         invoice=invoice,  # Pass full invoice for template rendering
                     )

@@ -19,7 +19,7 @@ class InvoiceCreate(BaseModel):
     """
     Request schema for creating a new invoice.
 
-    Validates customer information, amount, and description according to
+    Validates customer information and amount according to
     business rules defined in the Invoice model.
     """
 
@@ -46,13 +46,6 @@ class InvoiceCreate(BaseModel):
         ge=100,
         examples=[10000],
     )
-    description: str = Field(
-        ...,
-        description="Invoice description (3-120 characters)",
-        min_length=3,
-        max_length=120,
-        examples=["Payment for services rendered"],
-    )
 
     @field_validator("msisdn", "merchant_msisdn")
     @classmethod
@@ -78,17 +71,6 @@ class InvoiceCreate(BaseModel):
             raise ValueError("Amount must be at least 100 cents (1 KES)")
         return v
 
-    @field_validator("description")
-    @classmethod
-    def validate_description_length(cls, v: str) -> str:
-        """Validate description length."""
-        v = v.strip()
-        if len(v) < 3:
-            raise ValueError("Description must be at least 3 characters")
-        if len(v) > 120:
-            raise ValueError("Description must not exceed 120 characters")
-        return v
-
 
 class InvoiceResponse(BaseModel):
     """
@@ -107,7 +89,6 @@ class InvoiceResponse(BaseModel):
     amount_cents: int = Field(..., description="Invoice amount in cents")
     vat_amount: int = Field(..., description="VAT amount in cents")
     currency: str = Field(..., description="Currency code (KES)")
-    description: str = Field(..., description="Invoice description")
     status: str = Field(..., description="Invoice status")
     pay_ref: Optional[str] = Field(None, description="Payment reference")
     pay_link: Optional[str] = Field(None, description="Payment link")
