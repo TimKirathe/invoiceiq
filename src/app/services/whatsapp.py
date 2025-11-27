@@ -878,9 +878,20 @@ class WhatsAppService:
                     # Show preview
                     return self._generate_invoice_preview(data)
                 else:
+                    # Number is greater than saved methods - treat as new paybill number
+                    # Validate paybill number (5-7 digits)
+                    if not re.match(r'^\d{5,7}$', text):
+                        return {
+                            "response": "Invalid paybill number. Must be 5-7 digits. Please try again:",
+                            "action": "validation_error",
+                        }
+
+                    self.state_manager.update_data(user_id, "mpesa_paybill_number", text)
+                    self.state_manager.update_data(user_id, "used_saved_method", False)
+                    self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_PAYBILL_ACCOUNT, data)
                     return {
-                        "response": f"Invalid selection. Please enter a number between 1 and {len(saved_methods)}, or enter a new paybill number.",
-                        "action": "validation_error",
+                        "response": "Enter the account number the customer should use:",
+                        "action": "paybill_number_collected",
                     }
             except ValueError:
                 # Not a number - treat as new paybill number
@@ -949,9 +960,20 @@ class WhatsAppService:
                     # Show preview
                     return self._generate_invoice_preview(data)
                 else:
+                    # Number is greater than saved methods - treat as new till number
+                    # Validate till number (5-7 digits)
+                    if not re.match(r'^\d{5,7}$', text):
+                        return {
+                            "response": "Invalid till number. Must be 5-7 digits. Please try again:",
+                            "action": "validation_error",
+                        }
+
+                    self.state_manager.update_data(user_id, "mpesa_till_number", text)
+                    self.state_manager.update_data(user_id, "used_saved_method", False)
+                    self.state_manager.set_state(user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data)
                     return {
-                        "response": f"Invalid selection. Please enter a number between 1 and {len(saved_methods)}, or enter a new till number.",
-                        "action": "validation_error",
+                        "response": "Would you like to save this till number for future invoices?\n\nReply 'yes' or 'no':",
+                        "action": "till_number_collected",
                     }
             except ValueError:
                 # Not a number - treat as new till number
@@ -1005,10 +1027,22 @@ class WhatsAppService:
                     # Show preview
                     return self._generate_invoice_preview(data)
                 else:
-                    return {
-                        "response": f"Invalid selection. Please enter a number between 1 and {len(saved_methods)}, or enter a new phone number.",
-                        "action": "validation_error",
-                    }
+                    # Number is greater than saved methods - treat as new phone number
+                    # Validate phone number
+                    try:
+                        validated_phone = validate_msisdn(text)
+                        self.state_manager.update_data(user_id, "mpesa_phone_number", validated_phone)
+                        self.state_manager.update_data(user_id, "used_saved_method", False)
+                        self.state_manager.set_state(user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data)
+                        return {
+                            "response": "Would you like to save this phone number for future invoices?\n\nReply 'yes' or 'no':",
+                            "action": "phone_number_collected",
+                        }
+                    except ValueError:
+                        return {
+                            "response": "Invalid phone number. Please use format 2547XXXXXXXX:",
+                            "action": "validation_error",
+                        }
             except ValueError:
                 # Not a number - treat as new phone number
                 # Validate phone number
