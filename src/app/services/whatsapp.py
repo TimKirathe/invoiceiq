@@ -847,7 +847,24 @@ class WhatsAppService:
         elif current_state == self.state_manager.STATE_COLLECT_PAYBILL_DETAILS:
             saved_methods = data.get("saved_paybill_methods", [])
 
-            # Try to parse as selection number
+            # If no saved methods, treat input directly as new paybill number
+            if len(saved_methods) == 0:
+                # Validate paybill number (5-7 digits)
+                if not re.match(r'^\d{5,7}$', text):
+                    return {
+                        "response": "Invalid paybill number. Must be 5-7 digits. Please try again:",
+                        "action": "validation_error",
+                    }
+
+                self.state_manager.update_data(user_id, "mpesa_paybill_number", text)
+                self.state_manager.update_data(user_id, "used_saved_method", False)
+                self.state_manager.set_state(user_id, self.state_manager.STATE_COLLECT_PAYBILL_ACCOUNT, data)
+                return {
+                    "response": "Enter the account number the customer should use:",
+                    "action": "paybill_number_collected",
+                }
+
+            # Saved methods exist - try to parse as selection number
             try:
                 selection_num = int(text)
                 if 1 <= selection_num <= len(saved_methods):
@@ -902,7 +919,24 @@ class WhatsAppService:
         elif current_state == self.state_manager.STATE_COLLECT_TILL_DETAILS:
             saved_methods = data.get("saved_till_methods", [])
 
-            # Try to parse as selection number
+            # If no saved methods, treat input directly as new till number
+            if len(saved_methods) == 0:
+                # Validate till number (5-7 digits)
+                if not re.match(r'^\d{5,7}$', text):
+                    return {
+                        "response": "Invalid till number. Must be 5-7 digits. Please try again:",
+                        "action": "validation_error",
+                    }
+
+                self.state_manager.update_data(user_id, "mpesa_till_number", text)
+                self.state_manager.update_data(user_id, "used_saved_method", False)
+                self.state_manager.set_state(user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data)
+                return {
+                    "response": "Would you like to save this till number for future invoices?\n\nReply 'yes' or 'no':",
+                    "action": "till_number_collected",
+                }
+
+            # Saved methods exist - try to parse as selection number
             try:
                 selection_num = int(text)
                 if 1 <= selection_num <= len(saved_methods):
@@ -940,7 +974,25 @@ class WhatsAppService:
         elif current_state == self.state_manager.STATE_COLLECT_PHONE_DETAILS:
             saved_methods = data.get("saved_phone_methods", [])
 
-            # Try to parse as selection number
+            # If no saved methods, treat input directly as new phone number
+            if len(saved_methods) == 0:
+                # Validate phone number
+                try:
+                    validated_phone = validate_msisdn(text)
+                    self.state_manager.update_data(user_id, "mpesa_phone_number", validated_phone)
+                    self.state_manager.update_data(user_id, "used_saved_method", False)
+                    self.state_manager.set_state(user_id, self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD, data)
+                    return {
+                        "response": "Would you like to save this phone number for future invoices?\n\nReply 'yes' or 'no':",
+                        "action": "phone_number_collected",
+                    }
+                except ValueError:
+                    return {
+                        "response": "Invalid phone number. Please use format 2547XXXXXXXX:",
+                        "action": "validation_error",
+                    }
+
+            # Saved methods exist - try to parse as selection number
             try:
                 selection_num = int(text)
                 if 1 <= selection_num <= len(saved_methods):
