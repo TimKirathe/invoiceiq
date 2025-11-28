@@ -451,7 +451,10 @@ async def receive_webhook(
         # Check for undo command (must be before guided flow processing)
         if is_in_flow and message_text.lower() == "undo" and response_text is None:
             flow_result = whatsapp_service.go_back(sender)
-            response_text = flow_result["response"]
+            response_text = flow_result.get(
+                "response",
+                "Sorry, something went wrong. Please start over by sending 'invoice'."
+            )
 
             logger.info(
                 "Undo command processed",

@@ -1737,16 +1737,30 @@ class WhatsAppService:
             }
 
         elif state == self.state_manager.STATE_COLLECT_PAYBILL_DETAILS:
-            # Query saved paybill methods
-            supabase = get_supabase()
-            saved_response = (
-                supabase.table("merchant_payment_methods")
-                .select("*")
-                .eq("merchant_msisdn", user_id)
-                .eq("method_type", "PAYBILL")
-                .execute()
-            )
-            saved_methods = saved_response.data if saved_response.data else []
+            # Query saved paybill methods with error handling
+            try:
+                supabase = get_supabase()
+                saved_response = (
+                    supabase.table("merchant_payment_methods")
+                    .select("*")
+                    .eq("merchant_msisdn", user_id)
+                    .eq("method_type", "PAYBILL")
+                    .execute()
+                )
+                saved_methods = saved_response.data if saved_response.data else []
+            except Exception as db_error:
+                # Log error and fall back to simple prompt
+                logger.error(
+                    "Failed to fetch saved payment methods during back navigation",
+                    extra={
+                        "error": str(db_error),
+                        "user_id": user_id,
+                        "state": state,
+                        "method_type": "PAYBILL"
+                    },
+                    exc_info=True
+                )
+                saved_methods = []  # Fall back to empty list
 
             if saved_methods:
                 # Show saved methods
@@ -1778,16 +1792,30 @@ class WhatsAppService:
             }
 
         elif state == self.state_manager.STATE_COLLECT_TILL_DETAILS:
-            # Query saved till methods
-            supabase = get_supabase()
-            saved_response = (
-                supabase.table("merchant_payment_methods")
-                .select("*")
-                .eq("merchant_msisdn", user_id)
-                .eq("method_type", "TILL")
-                .execute()
-            )
-            saved_methods = saved_response.data if saved_response.data else []
+            # Query saved till methods with error handling
+            try:
+                supabase = get_supabase()
+                saved_response = (
+                    supabase.table("merchant_payment_methods")
+                    .select("*")
+                    .eq("merchant_msisdn", user_id)
+                    .eq("method_type", "TILL")
+                    .execute()
+                )
+                saved_methods = saved_response.data if saved_response.data else []
+            except Exception as db_error:
+                # Log error and fall back to simple prompt
+                logger.error(
+                    "Failed to fetch saved payment methods during back navigation",
+                    extra={
+                        "error": str(db_error),
+                        "user_id": user_id,
+                        "state": state,
+                        "method_type": "TILL"
+                    },
+                    exc_info=True
+                )
+                saved_methods = []  # Fall back to empty list
 
             if saved_methods:
                 # Show saved methods
@@ -1812,16 +1840,30 @@ class WhatsAppService:
             }
 
         elif state == self.state_manager.STATE_COLLECT_PHONE_DETAILS:
-            # Query saved phone methods
-            supabase = get_supabase()
-            saved_response = (
-                supabase.table("merchant_payment_methods")
-                .select("*")
-                .eq("merchant_msisdn", user_id)
-                .eq("method_type", "PHONE")
-                .execute()
-            )
-            saved_methods = saved_response.data if saved_response.data else []
+            # Query saved phone methods with error handling
+            try:
+                supabase = get_supabase()
+                saved_response = (
+                    supabase.table("merchant_payment_methods")
+                    .select("*")
+                    .eq("merchant_msisdn", user_id)
+                    .eq("method_type", "PHONE")
+                    .execute()
+                )
+                saved_methods = saved_response.data if saved_response.data else []
+            except Exception as db_error:
+                # Log error and fall back to simple prompt
+                logger.error(
+                    "Failed to fetch saved payment methods during back navigation",
+                    extra={
+                        "error": str(db_error),
+                        "user_id": user_id,
+                        "state": state,
+                        "method_type": "PHONE"
+                    },
+                    exc_info=True
+                )
+                saved_methods = []  # Fall back to empty list
 
             if saved_methods:
                 # Show saved methods
