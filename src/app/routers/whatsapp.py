@@ -445,8 +445,24 @@ async def receive_webhook(
         state_info = whatsapp_service.state_manager.get_state(sender)
         is_in_flow = state_info["state"] != whatsapp_service.state_manager.STATE_IDLE
 
+        # Initialize flow_result to track show_back_button flag
+        flow_result = {}
+
+        # Check for undo command (must be before guided flow processing)
+        if is_in_flow and message_text.lower() == "undo" and response_text is None:
+            flow_result = whatsapp_service.go_back(sender)
+            response_text = flow_result["response"]
+
+            logger.info(
+                "Undo command processed",
+                extra={
+                    "sender": sender,
+                    "action": flow_result.get("action")
+                }
+            )
+
         # Parse command if not in flow and not already handled
-        if not is_in_flow and response_text is None:
+        elif not is_in_flow and response_text is None:
             command_info = whatsapp_service.parse_command(message_text)
             command = command_info["command"]
             params = command_info["params"]
@@ -775,19 +791,26 @@ async def receive_webhook(
 
         # Send response to user
         if response_text:
+            # Check if we should show back button
+            show_back_button = flow_result.get("show_back_button", False)
+
             logger.info(
                 "Attempting to send response to user",
                 extra={
                     "sender": sender,
                     "response_length": len(response_text),
                     "response_preview": response_text[:100] if len(response_text) > 100 else response_text,
+                    "show_back_button": show_back_button,
                 },
             )
             try:
-                await whatsapp_service.send_message(sender, response_text)
+                if show_back_button:
+                    await whatsapp_service.send_message_with_back_button(sender, response_text)
+                else:
+                    await whatsapp_service.send_message(sender, response_text)
                 logger.info(
                     "Response sent to user successfully",
-                    extra={"sender": sender, "response_length": len(response_text)},
+                    extra={"sender": sender, "response_length": len(response_text), "with_back_button": show_back_button},
                 )
             except Exception as send_error:
                 logger.error(
