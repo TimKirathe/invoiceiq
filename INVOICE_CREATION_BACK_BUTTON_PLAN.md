@@ -49,7 +49,7 @@ STATE_READY (NO back button - can type 'cancel')
 
 ---
 
-## Phase 1: State Transition Mapping
+## Phase 1: State Transition Mapping ✅
 
 **Task:** Define the state transition map for back navigation
 
@@ -57,6 +57,7 @@ STATE_READY (NO back button - can type 'cancel')
 **Location:** In `ConversationStateManager` class (around line 42)
 
 **Implementation:**
+
 ```python
 # In ConversationStateManager class
 STATE_BACK_MAP = {
@@ -75,13 +76,14 @@ STATE_BACK_MAP = {
 ```
 
 **Notes:**
+
 - `STATE_COLLECT_MERCHANT_NAME` has no previous state (first step)
 - `STATE_READY` has no back button (user can type 'cancel')
 - `STATE_ASK_SAVE_PAYMENT_METHOD` needs dynamic handling based on payment method
 
 ---
 
-## Phase 2: Helper Method for Interactive Messages
+## Phase 2: Helper Method for Interactive Messages ✅
 
 **Task:** Create `send_message_with_back_button()` method in WhatsAppService
 
@@ -89,6 +91,7 @@ STATE_BACK_MAP = {
 **Location:** After `send_message()` method (around line 1200)
 
 **Implementation:**
+
 ```python
 async def send_message_with_back_button(
     self,
@@ -182,7 +185,7 @@ async def send_message_with_back_button(
 
 ---
 
-## Phase 3: Update Flow Prompts
+## Phase 3: Update Flow Prompts ✅
 
 **Task:** Modify all `return` statements in `handle_guided_flow()` to include back button flag
 
@@ -190,6 +193,7 @@ async def send_message_with_back_button(
 **Location:** Throughout `handle_guided_flow()` method
 
 **States to Update (with back button):**
+
 1. ✅ `STATE_COLLECT_LINE_ITEMS`
 2. ✅ `STATE_COLLECT_VAT`
 3. ✅ `STATE_COLLECT_DUE_DATE`
@@ -203,11 +207,13 @@ async def send_message_with_back_button(
 11. ✅ `STATE_ASK_SAVE_PAYMENT_METHOD`
 
 **States WITHOUT back button:**
+
 - ❌ `STATE_COLLECT_MERCHANT_NAME` (first step)
 - ❌ `STATE_READY` (preview - can type 'cancel')
 - ❌ `STATE_IDLE` (not in flow)
 
 **Change Pattern:**
+
 ```python
 # Before:
 return {
@@ -227,7 +233,7 @@ return {
 
 ---
 
-## Phase 4: Webhook Handler for Undo Button
+## Phase 4: Webhook Handler for Undo Button ✅
 
 **Task:** Add handler for interactive button clicks in `parse_incoming_message()`
 
@@ -235,6 +241,7 @@ return {
 **Location:** Around line 404 where interactive messages are parsed
 
 **Current Code:**
+
 ```python
 elif message_type == "interactive":
     # Handle button clicks
@@ -247,6 +254,7 @@ elif message_type == "interactive":
 ```
 
 **Updated Code:**
+
 ```python
 elif message_type == "interactive":
     # Handle button clicks
@@ -270,7 +278,7 @@ elif message_type == "interactive":
 
 ---
 
-## Phase 5: Implement go_back() Method
+## Phase 5: Implement go_back() Method ✅
 
 **Task:** Create method to handle back navigation with data clearing
 
@@ -278,6 +286,7 @@ elif message_type == "interactive":
 **Location:** In `WhatsAppService` class (around line 1700)
 
 **Implementation:**
+
 ```python
 def go_back(self, user_id: str) -> Dict[str, Any]:
     """
@@ -491,6 +500,7 @@ def _handle_back_error(self, user_id: str) -> Dict[str, Any]:
 **Changes:**
 
 1. **Handle "undo" command** (before processing guided flow):
+
 ```python
 # Check for undo command
 if is_in_flow and message_text.lower() == "undo":
@@ -508,6 +518,7 @@ if is_in_flow and message_text.lower() == "undo":
 ```
 
 2. **Send messages with back button** (in response sending section):
+
 ```python
 # Send response to user
 if response_text:
@@ -526,6 +537,7 @@ if response_text:
 **Task:** Ensure robust error handling throughout
 
 **Checklist:**
+
 - ✅ Handle invalid state transitions gracefully
 - ✅ Log all back navigation attempts
 - ✅ Clear state and prompt restart on error
@@ -539,6 +551,7 @@ if response_text:
 **Tasks:**
 
 1. **Linter Check:**
+
 ```bash
 ruff check src/app/
 ```
@@ -552,6 +565,7 @@ ruff check src/app/
    - ✅ Undo button click is properly detected
 
 3. **Manual Testing Flow:**
+
 ```
 1. Start invoice flow
 2. Enter merchant name (no back button)
@@ -591,6 +605,7 @@ Uses existing WhatsApp API capabilities via 360Dialog.
 ## WhatsApp API Reference
 
 **Interactive Button Message Format:**
+
 ```json
 {
   "to": "<customer-msisdn>",
@@ -616,6 +631,7 @@ Uses existing WhatsApp API capabilities via 360Dialog.
 ```
 
 **Button Click Webhook:**
+
 ```json
 {
   "interactive": {
@@ -633,6 +649,7 @@ Uses existing WhatsApp API capabilities via 360Dialog.
 ## Implementation Order
 
 Follow these phases in order:
+
 1. ✅ Phase 1: State Transition Mapping
 2. ✅ Phase 2: Helper Method
 3. ✅ Phase 3: Update Flow Prompts
