@@ -430,7 +430,17 @@ class WhatsAppService:
 
                 if interactive_type == "button_reply":
                     button_reply = interactive.get("button_reply", {})
-                    text = button_reply.get("id") or button_reply.get("title")
+                    button_id = button_reply.get("id")
+
+                    # Check if it's the undo button
+                    if button_id == "undo":
+                        text = "undo"  # Special command
+                        logger.info(
+                            "Undo button clicked",
+                            extra={"sender": normalized_sender}
+                        )
+                    else:
+                        text = button_id or button_reply.get("title")
                     logger.debug(f"Extracted button reply: {text}")
                 elif interactive_type == "list_reply":
                     list_reply = interactive.get("list_reply", {})
