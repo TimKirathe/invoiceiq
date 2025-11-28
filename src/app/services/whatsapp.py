@@ -1394,6 +1394,100 @@ class WhatsAppService:
             )
             raise
 
+    async def send_message_with_back_button(
+        self,
+        recipient: str,
+        message_text: str
+    ) -> bool:
+        """
+        Send a WhatsApp interactive message with an Undo button.
+
+        Uses 360Dialog API to send an interactive button message that allows
+        merchants to go back one step in the invoice creation flow.
+
+        Args:
+            recipient: Phone number to send to (E.164 format without +)
+            message_text: The prompt text to display
+
+        Returns:
+            True if sent successfully, False otherwise
+
+        Example:
+            >>> await service.send_message_with_back_button(
+            ...     "254712345678",
+            ...     "Please enter the customer's phone number:"
+            ... )
+        """
+        url = f"{self.base_url}/messages"
+        headers = {
+            "D360-API-KEY": self.api_key,
+            "Content-Type": "application/json",
+        }
+
+        payload = {
+            "to": recipient,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {
+                    "text": message_text
+                },
+                "action": {
+                    "buttons": [
+                        {
+                            "type": "reply",
+                            "reply": {
+                                "id": "undo",
+                                "title": "Undo"
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+                response = await client.post(url, json=payload, headers=headers)
+                response.raise_for_status()
+
+                logger.info(
+                    "Interactive message with back button sent successfully",
+                    extra={
+                        "recipient": recipient,
+                        "message_length": len(message_text)
+                    }
+                )
+                return True
+
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "WhatsApp API returned error status",
+                extra={
+                    "status_code": e.response.status_code,
+                    "response": e.response.text,
+                    "recipient": recipient
+                },
+                exc_info=True
+            )
+            return False
+
+        except httpx.RequestError as e:
+            logger.error(
+                "Failed to send WhatsApp interactive message",
+                extra={"error": str(e), "recipient": recipient},
+                exc_info=True
+            )
+            return False
+
+        except Exception as e:
+            logger.error(
+                "Unexpected error sending WhatsApp interactive message",
+                extra={"error": str(e), "recipient": recipient},
+                exc_info=True
+            )
+            return False
+
     async def send_invoice_to_customer(
         self,
         invoice_id: str,
