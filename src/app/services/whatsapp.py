@@ -683,6 +683,7 @@ class WhatsAppService:
                         "2 – No, no VAT"
                     ),
                     "action": "line_items_collected",
+                    "show_back_button": True,
                 }
             except ValueError as e:
                 return {
@@ -712,6 +713,7 @@ class WhatsAppService:
                         "Or send a date like: 30/11 or 30/11/2025."
                     ),
                     "action": "vat_collected",
+                    "show_back_button": True,
                 }
             else:
                 return {
@@ -730,6 +732,7 @@ class WhatsAppService:
                 return {
                     "response": "Great! Now, please send the customer's phone number with country code (e.g., 254712345678 for Kenya, 447123456789 for UK):",
                     "action": "due_date_collected",
+                    "show_back_button": True,
                 }
             except ValueError as e:
                 return {
@@ -748,6 +751,7 @@ class WhatsAppService:
                 return {
                     "response": "Perfect! What is the customer's name? (or send '-' to skip)",
                     "action": "phone_collected",
+                    "show_back_button": True,
                 }
             except ValueError as e:
                 return {
@@ -780,6 +784,7 @@ class WhatsAppService:
                     "3 – Phone Number (Send Money)"
                 ),
                 "action": "name_collected",
+                "show_back_button": True,
             }
 
         # STATE: COLLECT_MPESA_METHOD - Choose payment method
@@ -833,6 +838,7 @@ class WhatsAppService:
                 return {
                     "response": response_msg,
                     "action": "mpesa_method_selected",
+                    "show_back_button": True,
                 }
 
             elif mpesa_method == "TILL":
@@ -871,6 +877,7 @@ class WhatsAppService:
                 return {
                     "response": response_msg,
                     "action": "mpesa_method_selected",
+                    "show_back_button": True,
                 }
 
             elif mpesa_method == "PHONE":
@@ -911,6 +918,7 @@ class WhatsAppService:
                 return {
                     "response": response_msg,
                     "action": "mpesa_method_selected",
+                    "show_back_button": True,
                 }
 
         # STATE: COLLECT_PAYBILL_DETAILS - Handle paybill selection or new entry
@@ -934,6 +942,7 @@ class WhatsAppService:
                 return {
                     "response": "Enter the account number the customer should use:",
                     "action": "paybill_number_collected",
+                    "show_back_button": True,
                 }
 
             # Saved methods exist - try to parse as selection number
@@ -978,6 +987,7 @@ class WhatsAppService:
                     return {
                         "response": "Enter the account number the customer should use:",
                         "action": "paybill_number_collected",
+                        "show_back_button": True,
                     }
             except ValueError:
                 # Not a number - treat as new paybill number
@@ -996,6 +1006,7 @@ class WhatsAppService:
                 return {
                     "response": "Enter the account number the customer should use:",
                     "action": "paybill_number_collected",
+                    "show_back_button": True,
                 }
 
         # STATE: COLLECT_PAYBILL_ACCOUNT - Collect account number for paybill
@@ -1014,6 +1025,7 @@ class WhatsAppService:
             return {
                 "response": "Would you like to save this paybill for future invoices?\n\nReply 'yes' or 'no':",
                 "action": "account_number_collected",
+                "show_back_button": True,
             }
 
         # STATE: COLLECT_TILL_DETAILS - Handle till selection or new entry
@@ -1037,6 +1049,7 @@ class WhatsAppService:
                 return {
                     "response": "Would you like to save this till number for future invoices?\n\nReply 'yes' or 'no':",
                     "action": "till_number_collected",
+                    "show_back_button": True,
                 }
 
             # Saved methods exist - try to parse as selection number
@@ -1072,6 +1085,7 @@ class WhatsAppService:
                     return {
                         "response": "Would you like to save this till number for future invoices?\n\nReply 'yes' or 'no':",
                         "action": "till_number_collected",
+                        "show_back_button": True,
                     }
             except ValueError:
                 # Not a number - treat as new till number
@@ -1090,6 +1104,7 @@ class WhatsAppService:
                 return {
                     "response": "Would you like to save this till number for future invoices?\n\nReply 'yes' or 'no':",
                     "action": "till_number_collected",
+                    "show_back_button": True,
                 }
 
         # STATE: COLLECT_PHONE_DETAILS - Handle phone selection or new entry
@@ -1111,6 +1126,7 @@ class WhatsAppService:
                     return {
                         "response": "Would you like to save this phone number for future invoices?\n\nReply 'yes' or 'no':",
                         "action": "phone_number_collected",
+                        "show_back_button": True,
                     }
                 except ValueError:
                     return {
@@ -1153,6 +1169,7 @@ class WhatsAppService:
                         return {
                             "response": "Would you like to save this phone number for future invoices?\n\nReply 'yes' or 'no':",
                             "action": "phone_number_collected",
+                            "show_back_button": True,
                         }
                     except ValueError:
                         return {
@@ -1174,6 +1191,7 @@ class WhatsAppService:
                     return {
                         "response": "Would you like to save this phone number for future invoices?\n\nReply 'yes' or 'no':",
                         "action": "phone_number_collected",
+                        "show_back_button": True,
                     }
                 except ValueError:
                     return {
@@ -1193,8 +1211,10 @@ class WhatsAppService:
                     user_id, self.state_manager.STATE_READY, data
                 )
 
-                # Show preview
-                return self._generate_invoice_preview(data)
+                # Show preview - add back button flag
+                preview_result = self._generate_invoice_preview(data)
+                preview_result["show_back_button"] = True
+                return preview_result
             else:
                 return {
                     "response": "Please reply 'yes' or 'no':",
