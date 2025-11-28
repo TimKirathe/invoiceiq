@@ -1457,6 +1457,7 @@ class WhatsAppService:
         payload = {
             "to": recipient,
             "type": "interactive",
+            "messaging_product": "whatsapp",
             "interactive": {
                 "type": "button",
                 "body": {
