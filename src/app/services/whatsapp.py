@@ -58,6 +58,22 @@ class ConversationStateManager:
     STATE_ASK_SAVE_PAYMENT_METHOD = "ASK_SAVE_PAYMENT_METHOD"
     STATE_READY = "READY"
 
+    # State back navigation map - defines which state to return to when "Undo" is clicked
+    # None means no previous state (either first step or dynamic handling required)
+    STATE_BACK_MAP = {
+        STATE_COLLECT_LINE_ITEMS: STATE_COLLECT_MERCHANT_NAME,
+        STATE_COLLECT_VAT: STATE_COLLECT_LINE_ITEMS,
+        STATE_COLLECT_DUE_DATE: STATE_COLLECT_VAT,
+        STATE_COLLECT_PHONE: STATE_COLLECT_DUE_DATE,
+        STATE_COLLECT_NAME: STATE_COLLECT_PHONE,
+        STATE_COLLECT_MPESA_METHOD: STATE_COLLECT_NAME,
+        STATE_COLLECT_PAYBILL_DETAILS: STATE_COLLECT_MPESA_METHOD,
+        STATE_COLLECT_PAYBILL_ACCOUNT: STATE_COLLECT_PAYBILL_DETAILS,
+        STATE_COLLECT_TILL_DETAILS: STATE_COLLECT_MPESA_METHOD,
+        STATE_COLLECT_PHONE_DETAILS: STATE_COLLECT_MPESA_METHOD,
+        STATE_ASK_SAVE_PAYMENT_METHOD: None,  # Dynamic - depends on payment method
+    }
+
     @classmethod
     def get_state(cls, user_id: str) -> Dict[str, Any]:
         """
