@@ -1518,6 +1518,390 @@ class WhatsAppService:
             )
             return False
 
+    def go_back(self, user_id: str) -> Dict[str, Any]:
+        """
+        Handle back navigation in invoice creation flow.
+
+        Navigates to the previous step, clears current step data,
+        and returns the prompt for the previous step.
+
+        Args:
+            user_id: The merchant's user ID (phone number)
+
+        Returns:
+            Dictionary with response, action, and show_back_button flag
+
+        Example:
+            >>> result = service.go_back("254712345678")
+            >>> result["response"]
+            "Please enter your line items..."
+        """
+        state_info = self.state_manager.get_state(user_id)
+        current_state = state_info["state"]
+        data = state_info["data"]
+
+        logger.info(
+            "Back navigation requested",
+            extra={
+                "user_id": user_id,
+                "current_state": current_state
+            }
+        )
+
+        # Determine previous state
+        if current_state == self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD:
+            # Dynamic back based on payment method
+            mpesa_method = data.get("mpesa_method")
+            if mpesa_method == "PAYBILL":
+                previous_state = self.state_manager.STATE_COLLECT_PAYBILL_ACCOUNT
+            elif mpesa_method == "TILL":
+                previous_state = self.state_manager.STATE_COLLECT_TILL_DETAILS
+            elif mpesa_method == "PHONE":
+                previous_state = self.state_manager.STATE_COLLECT_PHONE_DETAILS
+            else:
+                logger.error(
+                    "Invalid payment method for back navigation",
+                    extra={
+                        "user_id": user_id,
+                        "mpesa_method": mpesa_method
+                    }
+                )
+                return self._handle_back_error(user_id)
+        else:
+            previous_state = self.state_manager.STATE_BACK_MAP.get(current_state)
+
+        if not previous_state:
+            logger.warning(
+                "No previous state found for back navigation",
+                extra={
+                    "user_id": user_id,
+                    "current_state": current_state
+                }
+            )
+            return self._handle_back_error(user_id)
+
+        # Clear data for current step
+        data_to_clear = self._get_data_keys_for_state(current_state)
+        for key in data_to_clear:
+            data.pop(key, None)
+
+        logger.debug(
+            "Cleared data for current state",
+            extra={
+                "user_id": user_id,
+                "current_state": current_state,
+                "keys_cleared": data_to_clear
+            }
+        )
+
+        # Set previous state
+        self.state_manager.set_state(user_id, previous_state, data)
+
+        # Return the prompt for previous state
+        return self._get_prompt_for_state(previous_state, data, user_id)
+
+    def _get_data_keys_for_state(self, state: str) -> list:
+        """
+        Get the data keys that should be cleared for a given state.
+
+        Args:
+            state: The state to get data keys for
+
+        Returns:
+            List of data keys to clear
+        """
+        state_data_map = {
+            self.state_manager.STATE_COLLECT_MERCHANT_NAME: ["merchant_name"],
+            self.state_manager.STATE_COLLECT_LINE_ITEMS: ["line_items"],
+            self.state_manager.STATE_COLLECT_VAT: ["include_vat"],
+            self.state_manager.STATE_COLLECT_DUE_DATE: ["due_date"],
+            self.state_manager.STATE_COLLECT_PHONE: ["phone"],
+            self.state_manager.STATE_COLLECT_NAME: ["name"],
+            self.state_manager.STATE_COLLECT_MPESA_METHOD: ["mpesa_method"],
+            self.state_manager.STATE_COLLECT_PAYBILL_DETAILS: [
+                "mpesa_paybill_number",
+                "saved_paybill_methods"
+            ],
+            self.state_manager.STATE_COLLECT_PAYBILL_ACCOUNT: ["mpesa_account_number"],
+            self.state_manager.STATE_COLLECT_TILL_DETAILS: [
+                "mpesa_till_number",
+                "saved_till_methods"
+            ],
+            self.state_manager.STATE_COLLECT_PHONE_DETAILS: [
+                "mpesa_phone_number",
+                "saved_phone_methods"
+            ],
+            self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD: ["save_payment_method"],
+        }
+
+        return state_data_map.get(state, [])
+
+    def _get_prompt_for_state(
+        self,
+        state: str,
+        data: Dict[str, Any],
+        user_id: str
+    ) -> Dict[str, Any]:
+        """
+        Get the prompt message for a given state.
+
+        Args:
+            state: The state to get prompt for
+            data: Current conversation data
+            user_id: The merchant's user ID
+
+        Returns:
+            Dictionary with response, action, and show_back_button flag
+        """
+        # This will return the same prompts as in handle_guided_flow()
+        # but without processing any input
+
+        # Import here to avoid circular dependency
+        from ..db import get_supabase
+
+        if state == self.state_manager.STATE_COLLECT_MERCHANT_NAME:
+            return {
+                "response": "Let's create an invoice!\n\nFirst, what is your business/merchant name? (2-100 characters)",
+                "action": "back_to_merchant_name",
+                "show_back_button": False,
+            }
+
+        elif state == self.state_manager.STATE_COLLECT_LINE_ITEMS:
+            return {
+                "response": (
+                    "Please enter your line items in the following format:\n\n"
+                    "Item - Unit Price - Quantity\n\n"
+                    "Example:\n"
+                    "Full Home Deep Clean - 1500 - 3\n"
+                    "Kitchen Deep Clean - 800 - 1\n"
+                    "Bathroom Scrub - 600 - 1\n\n"
+                    "Send all items in one message."
+                ),
+                "action": "back_to_line_items",
+                "show_back_button": True,
+            }
+
+        elif state == self.state_manager.STATE_COLLECT_VAT:
+            return {
+                "response": (
+                    "Would you like to include VAT on this invoice?\n\n"
+                    "Reply with:\n"
+                    "1 – Yes, add VAT (16%)\n"
+                    "2 – No, no VAT"
+                ),
+                "action": "back_to_vat",
+                "show_back_button": True,
+            }
+
+        elif state == self.state_manager.STATE_COLLECT_DUE_DATE:
+            return {
+                "response": (
+                    "When is this invoice due?\n\n"
+                    "Reply with one of:\n"
+                    "0 = Due on receipt\n"
+                    "7 = In 7 days\n"
+                    "14 = In 14 days\n"
+                    "30 = In 30 days\n"
+                    "N = In N days (where N is a number)\n\n"
+                    "Or send a date like: 30/11 or 30/11/2025."
+                ),
+                "action": "back_to_due_date",
+                "show_back_button": True,
+            }
+
+        elif state == self.state_manager.STATE_COLLECT_PHONE:
+            return {
+                "response": "Great! Now, please send the customer's phone number with country code (e.g., 254712345678 for Kenya, 447123456789 for UK):",
+                "action": "back_to_phone",
+                "show_back_button": True,
+            }
+
+        elif state == self.state_manager.STATE_COLLECT_NAME:
+            return {
+                "response": "Perfect! What is the customer's name? (or send '-' to skip)",
+                "action": "back_to_name",
+                "show_back_button": True,
+            }
+
+        elif state == self.state_manager.STATE_COLLECT_MPESA_METHOD:
+            return {
+                "response": (
+                    "How would you like to receive the payment via M-PESA?\n"
+                    "Reply with:\n\n"
+                    "1 – Paybill\n"
+                    "2 – Till Number\n"
+                    "3 – Phone Number (Send Money)"
+                ),
+                "action": "back_to_mpesa_method",
+                "show_back_button": True,
+            }
+
+        elif state == self.state_manager.STATE_COLLECT_PAYBILL_DETAILS:
+            # Query saved paybill methods
+            supabase = get_supabase()
+            saved_response = (
+                supabase.table("merchant_payment_methods")
+                .select("*")
+                .eq("merchant_msisdn", user_id)
+                .eq("method_type", "PAYBILL")
+                .execute()
+            )
+            saved_methods = saved_response.data if saved_response.data else []
+
+            if saved_methods:
+                # Show saved methods
+                methods_list = "\n".join(
+                    [
+                        f"{idx + 1} - Paybill Number: {m['paybill_number']}; Account Number: {m['account_number']}"
+                        for idx, m in enumerate(saved_methods)
+                    ]
+                )
+                response_msg = (
+                    f"Select the paybill you want to use:\n\n"
+                    f"{methods_list}\n\n"
+                    f"Or, please enter the paybill number you want to use:"
+                )
+            else:
+                response_msg = "Please enter your paybill number:"
+
+            return {
+                "response": response_msg,
+                "action": "back_to_paybill_details",
+                "show_back_button": True,
+            }
+
+        elif state == self.state_manager.STATE_COLLECT_PAYBILL_ACCOUNT:
+            return {
+                "response": "Enter the account number the customer should use:",
+                "action": "back_to_paybill_account",
+                "show_back_button": True,
+            }
+
+        elif state == self.state_manager.STATE_COLLECT_TILL_DETAILS:
+            # Query saved till methods
+            supabase = get_supabase()
+            saved_response = (
+                supabase.table("merchant_payment_methods")
+                .select("*")
+                .eq("merchant_msisdn", user_id)
+                .eq("method_type", "TILL")
+                .execute()
+            )
+            saved_methods = saved_response.data if saved_response.data else []
+
+            if saved_methods:
+                # Show saved methods
+                methods_list = "\n".join(
+                    [
+                        f"{idx + 1} - Till Number: {m['till_number']}"
+                        for idx, m in enumerate(saved_methods)
+                    ]
+                )
+                response_msg = (
+                    f"Select the till you want to use:\n\n"
+                    f"{methods_list}\n\n"
+                    f"Or, please enter the till number you want to use:"
+                )
+            else:
+                response_msg = "Please enter your till number:"
+
+            return {
+                "response": response_msg,
+                "action": "back_to_till_details",
+                "show_back_button": True,
+            }
+
+        elif state == self.state_manager.STATE_COLLECT_PHONE_DETAILS:
+            # Query saved phone methods
+            supabase = get_supabase()
+            saved_response = (
+                supabase.table("merchant_payment_methods")
+                .select("*")
+                .eq("merchant_msisdn", user_id)
+                .eq("method_type", "PHONE")
+                .execute()
+            )
+            saved_methods = saved_response.data if saved_response.data else []
+
+            if saved_methods:
+                # Show saved methods
+                methods_list = "\n".join(
+                    [
+                        f"{idx + 1} - Phone Number: {m['phone_number']}"
+                        for idx, m in enumerate(saved_methods)
+                    ]
+                )
+                response_msg = (
+                    f"Select the phone number you want to use:\n\n"
+                    f"{methods_list}\n\n"
+                    f"Or, please enter the phone number you want to use (format: 2547XXXXXXXX):"
+                )
+            else:
+                response_msg = (
+                    "Please enter your phone number (format: 2547XXXXXXXX):"
+                )
+
+            return {
+                "response": response_msg,
+                "action": "back_to_phone_details",
+                "show_back_button": True,
+            }
+
+        elif state == self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD:
+            # Determine the specific prompt based on payment method
+            mpesa_method = data.get("mpesa_method")
+            if mpesa_method == "PAYBILL":
+                response_msg = "Would you like to save this paybill for future invoices?\n\nReply 'yes' or 'no':"
+            elif mpesa_method == "TILL":
+                response_msg = "Would you like to save this till number for future invoices?\n\nReply 'yes' or 'no':"
+            elif mpesa_method == "PHONE":
+                response_msg = "Would you like to save this phone number for future invoices?\n\nReply 'yes' or 'no':"
+            else:
+                # Fallback if mpesa_method is not set properly
+                logger.error(
+                    "Unknown payment method in _get_prompt_for_state",
+                    extra={"state": state, "user_id": user_id, "mpesa_method": mpesa_method}
+                )
+                return self._handle_back_error(user_id)
+
+            return {
+                "response": response_msg,
+                "action": "back_to_save_payment_method",
+                "show_back_button": True,
+            }
+
+        else:
+            logger.error(
+                "Unknown state in _get_prompt_for_state",
+                extra={"state": state, "user_id": user_id}
+            )
+            return self._handle_back_error(user_id)
+
+    def _handle_back_error(self, user_id: str) -> Dict[str, Any]:
+        """
+        Handle error when back navigation fails.
+
+        Args:
+            user_id: The merchant's user ID
+
+        Returns:
+            Error response with instructions to start over
+        """
+        self.state_manager.clear_state(user_id)
+        logger.warning(
+            "Back navigation failed, clearing state",
+            extra={"user_id": user_id}
+        )
+
+        return {
+            "response": (
+                "Sorry, something went wrong with the back navigation. "
+                "Please start over by sending 'invoice'."
+            ),
+            "action": "back_error",
+            "show_back_button": False,
+        }
+
     async def send_invoice_to_customer(
         self,
         invoice_id: str,
