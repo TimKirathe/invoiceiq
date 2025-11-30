@@ -433,6 +433,36 @@ async def receive_webhook(
                         "Failed to log button click",
                         extra={"error": str(log_error), "invoice_id": invoice_id},
                     )
+
+            elif message_text == "undo":
+                # Handle undo button click
+                # Get user state to check if they're in a flow
+                state_info = whatsapp_service.state_manager.get_state(sender)
+                is_in_flow = state_info["state"] != whatsapp_service.state_manager.STATE_IDLE
+
+                if is_in_flow:
+                    # User is in flow, process the undo action
+                    flow_result = whatsapp_service.go_back(sender)
+                    response_text = flow_result.get(
+                        "response",
+                        "Sorry, something went wrong. Please start over by sending 'invoice'."
+                    )
+
+                    logger.info(
+                        "Undo button clicked and processed",
+                        extra={
+                            "sender": sender,
+                            "action": flow_result.get("action")
+                        }
+                    )
+                else:
+                    # User clicked undo but is not in a flow
+                    logger.warning(
+                        "Undo button clicked but user not in flow",
+                        extra={"sender": sender}
+                    )
+                    response_text = "No active flow to undo. Send 'invoice' to start."
+
             else:
                 # Unknown button click
                 logger.warning(
@@ -441,31 +471,18 @@ async def receive_webhook(
                 )
                 response_text = "Button received. I'm not sure what to do with this."
 
-        # Check if user has active state or is starting a new flow
-        state_info = whatsapp_service.state_manager.get_state(sender)
-        is_in_flow = state_info["state"] != whatsapp_service.state_manager.STATE_IDLE
-
         # Initialize flow_result to track show_back_button flag
-        flow_result = {}
+        # (may have been set by undo button handler above)
+        if 'flow_result' not in locals():
+            flow_result = {}
 
-        # Check for undo command (must be before guided flow processing)
-        if is_in_flow and message_text.lower() == "undo" and response_text is None:
-            flow_result = whatsapp_service.go_back(sender)
-            response_text = flow_result.get(
-                "response",
-                "Sorry, something went wrong. Please start over by sending 'invoice'."
-            )
-
-            logger.info(
-                "Undo command processed",
-                extra={
-                    "sender": sender,
-                    "action": flow_result.get("action")
-                }
-            )
+        # Check if user has active state or is starting a new flow (if not already checked)
+        if 'state_info' not in locals():
+            state_info = whatsapp_service.state_manager.get_state(sender)
+            is_in_flow = state_info["state"] != whatsapp_service.state_manager.STATE_IDLE
 
         # Parse command if not in flow and not already handled
-        elif not is_in_flow and response_text is None:
+        if not is_in_flow and response_text is None:
             command_info = whatsapp_service.parse_command(message_text)
             command = command_info["command"]
             params = command_info["params"]
