@@ -808,7 +808,23 @@ async def initiate_payment(
 
         # Prepare STK Push request
         account_reference = invoice["id"][:20]  # Max 20 characters
-        transaction_desc = invoice["description"][:20]  # Max 20 characters
+
+        # Generate transaction description from line_items (max 20 characters)
+        line_items = invoice.get("line_items")
+        if line_items and isinstance(line_items, list) and len(line_items) > 0:
+            # Use first item name
+            first_item_name = line_items[0]["name"]
+            if len(line_items) > 1:
+                # Multiple items: "Item & N more"
+                desc = f"{first_item_name} & {len(line_items) - 1} more"
+            else:
+                # Single item: just use the name
+                desc = first_item_name
+            # Truncate to 20 characters if needed
+            transaction_desc = desc[:20]
+        else:
+            # Fallback if no line items
+            transaction_desc = "Invoice payment"
 
         # Initiate STK Push
         stk_response = await mpesa_service.initiate_stk_push(
