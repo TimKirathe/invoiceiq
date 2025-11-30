@@ -59,7 +59,7 @@ def generate_invoice_html(
         payment_details = f"Till Number: {shortcode}"
 
     # Get merchant name (use merchant_msisdn as fallback)
-    merchant_name = invoice["merchant_msisdn"]
+    merchant_name = invoice["merchant_name"]
 
     # Format line items for display - show all items in full detail
     line_items = invoice.get("line_items")
@@ -69,8 +69,7 @@ def generate_invoice_html(
         for item in line_items:
             unit_price_kes = item["unit_price_cents"] / 100
             formatted_item = (
-                f"{item['name']} – KES {unit_price_kes:,.2f} "
-                f"(x{item['quantity']})"
+                f"{item['name']} – KES {unit_price_kes:,.2f} (x{item['quantity']})"
             )
             formatted_items_list.append(formatted_item)
         # Join with HTML line breaks for proper display
@@ -95,7 +94,7 @@ def generate_invoice_html(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Invoice {invoice['id']}</title>
+    <title>Invoice {invoice["id"]}</title>
     <style>
         * {{
             margin: 0;
@@ -298,7 +297,7 @@ def generate_invoice_html(
             const button = document.getElementById('pay-button');
             button.disabled = true;
             button.textContent = 'Processing...';
-            window.location.href = '/pay/{invoice['id']}';
+            window.location.href = '/pay/{invoice["id"]}';
         }}
     </script>
 </head>
@@ -307,9 +306,9 @@ def generate_invoice_html(
         <div class="invoice-card">
             <div class="invoice-header">
                 <div class="invoice-title">Invoice</div>
-                <div class="invoice-id">{invoice['id']}</div>
+                <div class="invoice-id">{invoice["id"]}</div>
                 <div style="margin-top: 12px;">
-                    <span class="status-badge status-{invoice['status'].lower()}">{invoice['status']}</span>
+                    <span class="status-badge status-{invoice["status"].lower()}">{invoice["status"]}</span>
                 </div>
             </div>
 
@@ -793,7 +792,9 @@ async def initiate_payment(
             "mpesa_receipt": None,
         }
 
-        create_payment_response = supabase.table("payments").insert(payment_data).execute()
+        create_payment_response = (
+            supabase.table("payments").insert(payment_data).execute()
+        )
         payment = create_payment_response.data[0]
 
         logger.info(
