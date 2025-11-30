@@ -544,7 +544,7 @@ def generate_invoice_html(
                         >
                         <label for="use-whatsapp">Use WhatsApp number</label>
                     </div>
-                    <div class="phone-display">+{invoice["msisdn"][:3]} {invoice["msisdn"][3:6]} {invoice["msisdn"][6:9]} {invoice["msisdn"][9:]}</div>
+                    <div class="phone-display">+{invoice["msisdn"]}</div>
 
                     <div class="radio-option" style="margin-top: 15px;">
                         <input
