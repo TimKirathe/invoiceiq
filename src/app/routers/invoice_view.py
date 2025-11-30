@@ -7,7 +7,7 @@ initiate M-PESA STK Push payments via a web interface.
 
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse
 from supabase import Client
 
@@ -284,6 +284,94 @@ def generate_invoice_html(
             margin-top: 30px;
         }}
 
+        .phone-selection {{
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 25px;
+        }}
+
+        .phone-selection-label {{
+            font-size: 14px;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }}
+
+        .radio-option {{
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+            cursor: pointer;
+        }}
+
+        .radio-option input[type="radio"] {{
+            margin-right: 10px;
+            cursor: pointer;
+            width: 18px;
+            height: 18px;
+        }}
+
+        .radio-option label {{
+            cursor: pointer;
+            font-size: 15px;
+            color: #333;
+            flex: 1;
+        }}
+
+        .phone-display {{
+            font-family: monospace;
+            color: #666;
+            margin-left: 28px;
+            font-size: 14px;
+        }}
+
+        .custom-phone-input {{
+            margin-left: 28px;
+            margin-top: 8px;
+            display: flex;
+            align-items: center;
+        }}
+
+        .phone-prefix {{
+            background-color: #e0e0e0;
+            padding: 10px 12px;
+            border: 1px solid #ccc;
+            border-right: none;
+            border-radius: 6px 0 0 6px;
+            font-size: 15px;
+            color: #333;
+            font-family: monospace;
+        }}
+
+        .phone-input {{
+            flex: 1;
+            padding: 10px 12px;
+            border: 1px solid #ccc;
+            border-radius: 0 6px 6px 0;
+            font-size: 15px;
+            font-family: monospace;
+        }}
+
+        .phone-input:disabled {{
+            background-color: #f5f5f5;
+            color: #999;
+            cursor: not-allowed;
+        }}
+
+        .phone-input:focus {{
+            outline: none;
+            border-color: #2196F3;
+        }}
+
+        .validation-error {{
+            color: #dc3545;
+            font-size: 13px;
+            margin-top: 8px;
+            margin-left: 28px;
+            display: none;
+        }}
+
         @media (max-width: 600px) {{
             body {{
                 padding: 10px;
@@ -299,12 +387,101 @@ def generate_invoice_html(
         }}
     </style>
     <script>
-        function initiatePayment() {{
-            const button = document.getElementById('pay-button');
-            button.disabled = true;
-            button.textContent = 'Processing...';
-            window.location.href = '/pay/{invoice["id"]}';
+        function togglePhoneInput() {{
+            const whatsappRadio = document.getElementById('use-whatsapp');
+            const customInput = document.getElementById('custom-phone');
+            const customPhoneField = document.getElementById('custom-phone-field');
+
+            if (whatsappRadio.checked) {{
+                customInput.disabled = true;
+                customInput.value = '';
+                customPhoneField.style.display = 'none';
+            }} else {{
+                customInput.disabled = false;
+                customPhoneField.style.display = 'block';
+                customInput.focus();
+            }}
         }}
+
+        function formatPhoneInput(input) {{
+            // Remove all non-digits
+            let value = input.value.replace(/\D/g, '');
+
+            // Limit to 9 digits
+            if (value.length > 9) {{
+                value = value.substring(0, 9);
+            }}
+
+            // Format with spaces: XXX XXX XXX
+            let formatted = '';
+            for (let i = 0; i < value.length; i++) {{
+                if (i > 0 && i % 3 === 0) {{
+                    formatted += ' ';
+                }}
+                formatted += value[i];
+            }}
+
+            input.value = formatted;
+        }}
+
+        function validateAndSubmit(event) {{
+            event.preventDefault();
+
+            const form = document.getElementById('payment-form');
+            const whatsappRadio = document.getElementById('use-whatsapp');
+            const customRadio = document.getElementById('use-custom');
+            const customInput = document.getElementById('custom-phone');
+            const errorDiv = document.getElementById('validation-error');
+            const submitButton = document.getElementById('pay-button');
+            const paymentPhoneInput = document.getElementById('payment-phone');
+
+            // Clear previous errors
+            errorDiv.style.display = 'none';
+
+            let phoneNumber = '';
+
+            if (whatsappRadio.checked) {{
+                // Use WhatsApp number
+                phoneNumber = '{invoice["msisdn"]}';
+            }} else if (customRadio.checked) {{
+                // Validate custom number
+                const digits = customInput.value.replace(/\D/g, '');
+
+                if (digits.length !== 9) {{
+                    errorDiv.textContent = 'Please enter a valid 9-digit phone number (e.g., 712 345 678)';
+                    errorDiv.style.display = 'block';
+                    return false;
+                }}
+
+                phoneNumber = '254' + digits;
+            }}
+
+            // Set the payment phone value
+            paymentPhoneInput.value = phoneNumber;
+
+            // Disable button and submit
+            submitButton.disabled = true;
+            submitButton.textContent = 'Processing...';
+            form.submit();
+
+            return true;
+        }}
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {{
+            const whatsappRadio = document.getElementById('use-whatsapp');
+            const customRadio = document.getElementById('use-custom');
+            const customInput = document.getElementById('custom-phone');
+
+            whatsappRadio.addEventListener('change', togglePhoneInput);
+            customRadio.addEventListener('change', togglePhoneInput);
+            customInput.addEventListener('input', function() {{
+                formatPhoneInput(this);
+            }});
+
+            // Initialize state
+            togglePhoneInput();
+        }});
     </script>
 </head>
 <body>
@@ -353,14 +530,56 @@ def generate_invoice_html(
                 <div class="payment-details-value">{payment_details}</div>
             </div>
 
-            <button
-                id="pay-button"
-                class="pay-button"
-                onclick="initiatePayment()"
-                {button_disabled}
-            >
-                {button_text}
-            </button>
+            <form id="payment-form" method="POST" action="/pay/{invoice["id"]}" onsubmit="return validateAndSubmit(event);">
+                <div class="phone-selection">
+                    <div class="phone-selection-label">STK push will be sent to:</div>
+
+                    <div class="radio-option">
+                        <input
+                            type="radio"
+                            id="use-whatsapp"
+                            name="phone-option"
+                            value="whatsapp"
+                            checked
+                        >
+                        <label for="use-whatsapp">Use WhatsApp number</label>
+                    </div>
+                    <div class="phone-display">+{invoice["msisdn"][:3]} {invoice["msisdn"][3:6]} {invoice["msisdn"][6:9]} {invoice["msisdn"][9:]}</div>
+
+                    <div class="radio-option" style="margin-top: 15px;">
+                        <input
+                            type="radio"
+                            id="use-custom"
+                            name="phone-option"
+                            value="custom"
+                        >
+                        <label for="use-custom">Use different number</label>
+                    </div>
+                    <div id="custom-phone-field" class="custom-phone-input" style="display: none;">
+                        <span class="phone-prefix">+254</span>
+                        <input
+                            type="text"
+                            id="custom-phone"
+                            class="phone-input"
+                            placeholder="712 345 678"
+                            maxlength="11"
+                            disabled
+                        >
+                    </div>
+                    <div id="validation-error" class="validation-error"></div>
+                </div>
+
+                <input type="hidden" id="payment-phone" name="payment_phone" value="">
+
+                <button
+                    id="pay-button"
+                    type="submit"
+                    class="pay-button"
+                    {button_disabled}
+                >
+                    {button_text}
+                </button>
+            </form>
         </div>
 
         <div class="footer">
@@ -689,9 +908,10 @@ def view_invoice(
         raise HTTPException(status_code=500, detail="Database error")
 
 
-@router.get("/pay/{invoice_id}", response_class=HTMLResponse)
+@router.post("/pay/{invoice_id}", response_class=HTMLResponse)
 async def initiate_payment(
     invoice_id: str,
+    payment_phone: str = Form(...),
     supabase: Client = Depends(get_supabase),
     mpesa_service: MPesaService = Depends(get_mpesa_service),
 ) -> str:
@@ -700,6 +920,7 @@ async def initiate_payment(
 
     Args:
         invoice_id: Invoice ID to pay
+        payment_phone: Phone number to receive STK Push (format: 254XXXXXXXXX)
         supabase: Supabase client
         mpesa_service: M-PESA service instance
 
@@ -711,8 +932,19 @@ async def initiate_payment(
     """
     logger.info(
         "Payment initiation requested",
-        extra={"invoice_id": invoice_id},
+        extra={"invoice_id": invoice_id, "payment_phone": payment_phone},
     )
+
+    # Validate payment phone format
+    if not payment_phone or len(payment_phone) != 12 or not payment_phone.startswith("254"):
+        logger.warning(
+            "Invalid payment phone format",
+            extra={"invoice_id": invoice_id, "payment_phone": payment_phone},
+        )
+        return generate_error_html(
+            invoice_id=invoice_id,
+            error_message="Invalid phone number format. Must be 254XXXXXXXXX (12 digits).",
+        )
 
     try:
         # Lookup invoice
@@ -828,7 +1060,7 @@ async def initiate_payment(
 
         # Initiate STK Push
         stk_response = await mpesa_service.initiate_stk_push(
-            phone_number=invoice["msisdn"],
+            phone_number=payment_phone,
             amount=amount_kes,
             account_reference=account_reference,
             transaction_desc=transaction_desc,
@@ -837,7 +1069,7 @@ async def initiate_payment(
         # Update payment with raw request and response
         update_data = {
             "raw_request": {
-                "phone_number": invoice["msisdn"],
+                "phone_number": payment_phone,
                 "amount": amount_kes,
                 "account_reference": account_reference,
                 "transaction_desc": transaction_desc,
@@ -870,7 +1102,7 @@ async def initiate_payment(
                     {
                         "status": "FAILED",
                         "raw_request": {
-                            "phone_number": invoice["msisdn"],
+                            "phone_number": payment_phone,
                             "amount": amount_kes,
                             "account_reference": account_reference,
                             "transaction_desc": transaction_desc,
