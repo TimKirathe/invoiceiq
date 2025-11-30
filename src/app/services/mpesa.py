@@ -234,6 +234,7 @@ class MPesaService:
         amount: int,
         account_reference: str,
         transaction_desc: str,
+        payment_method: str | None = None,
     ) -> Dict[str, Any]:
         """
         Initiate M-PESA STK Push request with retry logic and circuit breaker.
@@ -254,6 +255,8 @@ class MPesaService:
             amount: Amount in whole KES (no decimals)
             account_reference: Invoice ID or reference
             transaction_desc: Transaction description
+            payment_method: Payment method type ("PAYBILL" or "TILL").
+                          Falls back to settings.mpesa_payment_type if not provided.
 
         Returns:
             M-PESA API response data
@@ -269,12 +272,13 @@ class MPesaService:
                 "phone_number": phone_number,
                 "amount": amount,
                 "account_reference": account_reference,
+                "payment_method": payment_method,
             },
         )
 
         # Wrap the actual API call with circuit breaker
         return await self._initiate_stk_push_with_circuit_breaker(
-            phone_number, amount, account_reference, transaction_desc
+            phone_number, amount, account_reference, transaction_desc, payment_method
         )
 
     async def _initiate_stk_push_with_circuit_breaker(
@@ -283,6 +287,7 @@ class MPesaService:
         amount: int,
         account_reference: str,
         transaction_desc: str,
+        payment_method: str | None = None,
     ) -> Dict[str, Any]:
         """
         Internal method to initiate STK Push with circuit breaker protection.
@@ -296,16 +301,25 @@ class MPesaService:
         timestamp = self.generate_timestamp()
         password = self.generate_password(self.shortcode, self.passkey, timestamp)
 
+        # Determine transaction type based on payment method
+        # Default to config setting if not explicitly provided
+        method = payment_method or settings.mpesa_payment_type.upper()
+        transaction_type = (
+            "CustomerBuyGoodsOnline" if method == "TILL"
+            else "CustomerPayBillOnline"
+        )
+
         # Construct STK Push request payload
+        # CRITICAL: M-PESA API expects numeric fields as integers, not strings
         payload = {
-            "BusinessShortCode": self.shortcode,
+            "BusinessShortCode": int(self.shortcode),
             "Password": password,
             "Timestamp": timestamp,
-            "TransactionType": "CustomerPayBillOnline",
+            "TransactionType": transaction_type,
             "Amount": amount,
-            "PartyA": phone_number,
-            "PartyB": self.shortcode,
-            "PhoneNumber": phone_number,
+            "PartyA": int(phone_number),
+            "PartyB": int(self.shortcode),
+            "PhoneNumber": int(phone_number),
             "CallBackURL": self.callback_url,
             "AccountReference": account_reference,
             "TransactionDesc": transaction_desc,

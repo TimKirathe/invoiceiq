@@ -282,11 +282,14 @@ async def initiate_stk_push(
 
     try:
         # Initiate STK Push
+        # Pass payment method from invoice (PAYBILL or TILL)
+        payment_method = invoice.get("mpesa_method")
         stk_response = await mpesa_service.initiate_stk_push(
             phone_number=invoice["msisdn"],
             amount=amount_kes,
             account_reference=account_reference,
             transaction_desc=transaction_desc,
+            payment_method=payment_method,
         )
 
         # Update payment with raw request and response
