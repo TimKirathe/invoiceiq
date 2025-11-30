@@ -10,6 +10,7 @@ import logging
 import time
 from datetime import datetime
 from typing import Any, Dict
+from xml.sax.saxutils import escape as xml_escape
 
 import httpx
 import pybreaker
@@ -221,6 +222,38 @@ class MPesaService:
 
         return timestamp
 
+    def _sanitize_xml_text(self, text: str) -> str:
+        """
+        Sanitize text for safe inclusion in M-PESA API requests.
+
+        M-PESA Daraja API processes requests through XML, so special XML characters
+        must be escaped to prevent parsing errors. This method uses Python's standard
+        xml.sax.saxutils.escape() to escape XML special characters.
+
+        Escapes the following characters:
+        - & → &amp;
+        - < → &lt;
+        - > → &gt;
+
+        Args:
+            text: Text to sanitize
+
+        Returns:
+            Sanitized text with XML special characters escaped
+        """
+        if not text:
+            return text
+
+        # Use Python's standard library XML escaping
+        sanitized = xml_escape(text)
+
+        logger.debug(
+            "Sanitized XML text",
+            extra={"original": text, "sanitized": sanitized},
+        )
+
+        return sanitized
+
     @retry(
         retry=retry_if_exception_type((httpx.RequestError, httpx.TimeoutException)),
         stop=stop_after_attempt(3),
@@ -309,6 +342,12 @@ class MPesaService:
             else "CustomerPayBillOnline"
         )
 
+        # Sanitize text fields to prevent XML parsing errors in Daraja API
+        # M-PESA processes these fields through XML, so special characters
+        # like &, <, > must be escaped to prevent parsing failures
+        sanitized_account_ref = self._sanitize_xml_text(account_reference)
+        sanitized_transaction_desc = self._sanitize_xml_text(transaction_desc)
+
         # Construct STK Push request payload
         # CRITICAL: M-PESA API expects numeric fields as integers, not strings
         payload = {
@@ -321,8 +360,8 @@ class MPesaService:
             "PartyB": int(self.shortcode),
             "PhoneNumber": int(phone_number),
             "CallBackURL": self.callback_url,
-            "AccountReference": account_reference,
-            "TransactionDesc": transaction_desc,
+            "AccountReference": sanitized_account_ref,
+            "TransactionDesc": sanitized_transaction_desc,
         }
 
         # Make STK Push request with circuit breaker
@@ -332,12 +371,64 @@ class MPesaService:
             "Content-Type": "application/json",
         }
 
+        # DEBUG: Log complete request details before making API call
+        logger.info(
+            "DEBUG: STK Push request details",
+            extra={
+                "url": stk_url,
+                "method": "POST",
+                "headers": {
+                    "Authorization": f"Bearer {access_token[:10]}...{access_token[-10:] if len(access_token) > 20 else '***'}",
+                    "Content-Type": "application/json",
+                },
+                "payload": {
+                    "BusinessShortCode": payload["BusinessShortCode"],
+                    "Password": f"{payload['Password'][:10]}...{payload['Password'][-10:] if len(payload['Password']) > 20 else '***'}",
+                    "Timestamp": payload["Timestamp"],
+                    "TransactionType": payload["TransactionType"],
+                    "Amount": payload["Amount"],
+                    "PartyA": payload["PartyA"],
+                    "PartyB": payload["PartyB"],
+                    "PhoneNumber": payload["PhoneNumber"],
+                    "CallBackURL": payload["CallBackURL"],
+                    "AccountReference": payload["AccountReference"],
+                    "TransactionDesc": payload["TransactionDesc"],
+                },
+                "payload_types": {
+                    "BusinessShortCode": type(payload["BusinessShortCode"]).__name__,
+                    "Password": type(payload["Password"]).__name__,
+                    "Timestamp": type(payload["Timestamp"]).__name__,
+                    "TransactionType": type(payload["TransactionType"]).__name__,
+                    "Amount": type(payload["Amount"]).__name__,
+                    "PartyA": type(payload["PartyA"]).__name__,
+                    "PartyB": type(payload["PartyB"]).__name__,
+                    "PhoneNumber": type(payload["PhoneNumber"]).__name__,
+                    "CallBackURL": type(payload["CallBackURL"]).__name__,
+                    "AccountReference": type(payload["AccountReference"]).__name__,
+                    "TransactionDesc": type(payload["TransactionDesc"]).__name__,
+                },
+                "payment_method": method,
+                "environment": self.environment,
+            },
+        )
+
         try:
             # Wrap the HTTP call with circuit breaker
             @mpesa_circuit_breaker
             async def make_stk_request() -> Dict[str, Any]:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
                     response = await client.post(stk_url, json=payload, headers=headers)
+
+                    # DEBUG: Log raw response before processing
+                    logger.info(
+                        "DEBUG: STK Push raw response received",
+                        extra={
+                            "status_code": response.status_code,
+                            "response_headers": dict(response.headers),
+                            "response_text": response.text[:500] if len(response.text) > 500 else response.text,
+                        },
+                    )
+
                     response.raise_for_status()
                     data = response.json()
 
