@@ -436,8 +436,7 @@ class WhatsAppService:
                     if button_id == "undo":
                         text = "undo"  # Special command
                         logger.info(
-                            "Undo button clicked",
-                            extra={"sender": normalized_sender}
+                            "Undo button clicked", extra={"sender": normalized_sender}
                         )
                     else:
                         text = button_id or button_reply.get("title")
@@ -1033,10 +1032,10 @@ class WhatsAppService:
 
         # STATE: COLLECT_PAYBILL_ACCOUNT - Collect account number for paybill
         elif current_state == self.state_manager.STATE_COLLECT_PAYBILL_ACCOUNT:
-            # Validate account number (1-20 alphanumeric characters)
-            if not re.match(r"^[a-zA-Z0-9\-]{1,20}$", text):
+            # Validate account number (1-100 alphanumeric characters)
+            if not re.match(r"^[a-zA-Z0-9\-]{1,100}$", text):
                 return {
-                    "response": "Invalid account number. Must be 1-20 alphanumeric characters. Please try again:",
+                    "response": "Invalid account number. Must be 1-100 alphanumeric characters. Please try again:",
                     "action": "validation_error",
                     "show_back_button": True,
                 }
@@ -1449,9 +1448,7 @@ class WhatsAppService:
             raise
 
     async def send_message_with_back_button(
-        self,
-        recipient: str,
-        message_text: str
+        self, recipient: str, message_text: str
     ) -> bool:
         """
         Send a WhatsApp interactive message with an Undo button.
@@ -1484,21 +1481,13 @@ class WhatsAppService:
             "messaging_product": "whatsapp",
             "interactive": {
                 "type": "button",
-                "body": {
-                    "text": message_text
-                },
+                "body": {"text": message_text},
                 "action": {
                     "buttons": [
-                        {
-                            "type": "reply",
-                            "reply": {
-                                "id": "undo",
-                                "title": "Undo"
-                            }
-                        }
+                        {"type": "reply", "reply": {"id": "undo", "title": "Undo"}}
                     ]
-                }
-            }
+                },
+            },
         }
 
         try:
@@ -1508,10 +1497,7 @@ class WhatsAppService:
 
                 logger.info(
                     "Interactive message with back button sent successfully",
-                    extra={
-                        "recipient": recipient,
-                        "message_length": len(message_text)
-                    }
+                    extra={"recipient": recipient, "message_length": len(message_text)},
                 )
                 return True
 
@@ -1521,9 +1507,9 @@ class WhatsAppService:
                 extra={
                     "status_code": e.response.status_code,
                     "response": e.response.text,
-                    "recipient": recipient
+                    "recipient": recipient,
                 },
-                exc_info=True
+                exc_info=True,
             )
             return False
 
@@ -1531,7 +1517,7 @@ class WhatsAppService:
             logger.error(
                 "Failed to send WhatsApp interactive message",
                 extra={"error": str(e), "recipient": recipient},
-                exc_info=True
+                exc_info=True,
             )
             return False
 
@@ -1539,7 +1525,7 @@ class WhatsAppService:
             logger.error(
                 "Unexpected error sending WhatsApp interactive message",
                 extra={"error": str(e), "recipient": recipient},
-                exc_info=True
+                exc_info=True,
             )
             return False
 
@@ -1567,10 +1553,7 @@ class WhatsAppService:
 
         logger.info(
             "Back navigation requested",
-            extra={
-                "user_id": user_id,
-                "current_state": current_state
-            }
+            extra={"user_id": user_id, "current_state": current_state},
         )
 
         # Determine previous state
@@ -1586,10 +1569,7 @@ class WhatsAppService:
             else:
                 logger.error(
                     "Invalid payment method for back navigation",
-                    extra={
-                        "user_id": user_id,
-                        "mpesa_method": mpesa_method
-                    }
+                    extra={"user_id": user_id, "mpesa_method": mpesa_method},
                 )
                 return self._handle_back_error(user_id)
         else:
@@ -1598,10 +1578,7 @@ class WhatsAppService:
         if not previous_state:
             logger.warning(
                 "No previous state found for back navigation",
-                extra={
-                    "user_id": user_id,
-                    "current_state": current_state
-                }
+                extra={"user_id": user_id, "current_state": current_state},
             )
             return self._handle_back_error(user_id)
 
@@ -1615,8 +1592,8 @@ class WhatsAppService:
             extra={
                 "user_id": user_id,
                 "current_state": current_state,
-                "keys_cleared": data_to_clear
-            }
+                "keys_cleared": data_to_clear,
+            },
         )
 
         # Set previous state
@@ -1645,16 +1622,16 @@ class WhatsAppService:
             self.state_manager.STATE_COLLECT_MPESA_METHOD: ["mpesa_method"],
             self.state_manager.STATE_COLLECT_PAYBILL_DETAILS: [
                 "mpesa_paybill_number",
-                "saved_paybill_methods"
+                "saved_paybill_methods",
             ],
             self.state_manager.STATE_COLLECT_PAYBILL_ACCOUNT: ["mpesa_account_number"],
             self.state_manager.STATE_COLLECT_TILL_DETAILS: [
                 "mpesa_till_number",
-                "saved_till_methods"
+                "saved_till_methods",
             ],
             self.state_manager.STATE_COLLECT_PHONE_DETAILS: [
                 "mpesa_phone_number",
-                "saved_phone_methods"
+                "saved_phone_methods",
             ],
             self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD: ["save_payment_method"],
         }
@@ -1662,10 +1639,7 @@ class WhatsAppService:
         return state_data_map.get(state, [])
 
     def _get_prompt_for_state(
-        self,
-        state: str,
-        data: Dict[str, Any],
-        user_id: str
+        self, state: str, data: Dict[str, Any], user_id: str
     ) -> Dict[str, Any]:
         """
         Get the prompt message for a given state.
@@ -1781,9 +1755,9 @@ class WhatsAppService:
                         "error": str(db_error),
                         "user_id": user_id,
                         "state": state,
-                        "method_type": "PAYBILL"
+                        "method_type": "PAYBILL",
                     },
-                    exc_info=True
+                    exc_info=True,
                 )
                 saved_methods = []  # Fall back to empty list
 
@@ -1836,9 +1810,9 @@ class WhatsAppService:
                         "error": str(db_error),
                         "user_id": user_id,
                         "state": state,
-                        "method_type": "TILL"
+                        "method_type": "TILL",
                     },
-                    exc_info=True
+                    exc_info=True,
                 )
                 saved_methods = []  # Fall back to empty list
 
@@ -1884,9 +1858,9 @@ class WhatsAppService:
                         "error": str(db_error),
                         "user_id": user_id,
                         "state": state,
-                        "method_type": "PHONE"
+                        "method_type": "PHONE",
                     },
-                    exc_info=True
+                    exc_info=True,
                 )
                 saved_methods = []  # Fall back to empty list
 
@@ -1904,9 +1878,7 @@ class WhatsAppService:
                     f"Or, please enter the phone number you want to use (format: 2547XXXXXXXX):"
                 )
             else:
-                response_msg = (
-                    "Please enter your phone number (format: 2547XXXXXXXX):"
-                )
+                response_msg = "Please enter your phone number (format: 2547XXXXXXXX):"
 
             return {
                 "response": response_msg,
@@ -1927,7 +1899,11 @@ class WhatsAppService:
                 # Fallback if mpesa_method is not set properly
                 logger.error(
                     "Unknown payment method in _get_prompt_for_state",
-                    extra={"state": state, "user_id": user_id, "mpesa_method": mpesa_method}
+                    extra={
+                        "state": state,
+                        "user_id": user_id,
+                        "mpesa_method": mpesa_method,
+                    },
                 )
                 return self._handle_back_error(user_id)
 
@@ -1940,7 +1916,7 @@ class WhatsAppService:
         else:
             logger.error(
                 "Unknown state in _get_prompt_for_state",
-                extra={"state": state, "user_id": user_id}
+                extra={"state": state, "user_id": user_id},
             )
             return self._handle_back_error(user_id)
 
@@ -1956,8 +1932,7 @@ class WhatsAppService:
         """
         self.state_manager.clear_state(user_id)
         logger.warning(
-            "Back navigation failed, clearing state",
-            extra={"user_id": user_id}
+            "Back navigation failed, clearing state", extra={"user_id": user_id}
         )
 
         return {
