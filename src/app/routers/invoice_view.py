@@ -33,16 +33,12 @@ def get_mpesa_service() -> MPesaService:
 
 def generate_invoice_html(
     invoice: dict,
-    payment_type: str,
-    shortcode: str,
 ) -> str:
     """
     Generate HTML for invoice display.
 
     Args:
         invoice: Invoice dict from database
-        payment_type: "paybill" or "till"
-        shortcode: M-PESA shortcode/business number
 
     Returns:
         HTML string for invoice display
@@ -52,11 +48,21 @@ def generate_invoice_html(
     vat_amount = invoice["vat_amount"] / 100  # Convert from cents to KES
     subtotal = total_amount - vat_amount
 
-    # Determine payment details text
-    if payment_type.lower() == "paybill":
-        payment_details = f"Paybill: {shortcode}<br>Account: {invoice['id']}"
-    else:  # till
-        payment_details = f"Till Number: {shortcode}"
+    # Determine payment details text based on invoice's mpesa_method
+    mpesa_method = invoice.get("mpesa_method")
+    if mpesa_method == "PAYBILL":
+        paybill_number = invoice.get("mpesa_paybill_number", "N/A")
+        account_number = invoice.get("mpesa_account_number", "N/A")
+        payment_details = f"Paybill: {paybill_number}<br>Account: {account_number}"
+    elif mpesa_method == "TILL":
+        till_number = invoice.get("mpesa_till_number", "N/A")
+        payment_details = f"Till Number: {till_number}"
+    elif mpesa_method == "PHONE":
+        phone_number = invoice.get("mpesa_phone_number", "N/A")
+        payment_details = f"Send to: {phone_number}"
+    else:
+        # Fallback for missing or unexpected payment method
+        payment_details = "Payment details not available"
 
     # Get merchant name (use merchant_msisdn as fallback)
     merchant_name = invoice["merchant_name"]
@@ -668,8 +674,6 @@ def view_invoice(
         # Generate and return HTML
         html = generate_invoice_html(
             invoice=invoice,
-            payment_type=settings.mpesa_payment_type,
-            shortcode=settings.mpesa_shortcode,
         )
 
         return html
