@@ -15,6 +15,7 @@ from ..config import settings
 from ..db import get_supabase
 from ..services.mpesa import MPesaService
 from ..utils.logging import get_logger
+from ..utils.invoice_parser import format_line_items_for_template
 
 logger = get_logger(__name__)
 
@@ -61,6 +62,13 @@ def generate_invoice_html(
     # Get merchant name (use merchant_msisdn as fallback)
     merchant_name = invoice["merchant_msisdn"]
 
+    # Format line items for display
+    line_items = invoice.get("line_items")
+    if line_items and isinstance(line_items, list) and len(line_items) > 0:
+        formatted_items = format_line_items_for_template(line_items)
+    else:
+        formatted_items = "No items specified"
+
     # Determine button state based on invoice status
     button_disabled = ""
     button_text = "Pay with M-PESA"
@@ -78,7 +86,7 @@ def generate_invoice_html(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Invoice {invoice.id}</title>
+    <title>Invoice {invoice['id']}</title>
     <style>
         * {{
             margin: 0;
@@ -281,7 +289,7 @@ def generate_invoice_html(
             const button = document.getElementById('pay-button');
             button.disabled = true;
             button.textContent = 'Processing...';
-            window.location.href = '/pay/{invoice.id}';
+            window.location.href = '/pay/{invoice['id']}';
         }}
     </script>
 </head>
@@ -303,7 +311,7 @@ def generate_invoice_html(
 
             <div class="invoice-section">
                 <div class="section-label">Invoice For</div>
-                <div class="section-value">{invoice['description']}</div>
+                <div class="section-value">{formatted_items}</div>
             </div>
 
             <div class="amount-breakdown">
@@ -349,12 +357,7 @@ def generate_invoice_html(
 </html>
     """
 
-    return html.format(
-        invoice=invoice,
-        invoice_id=invoice['id'],
-        invoice_status=invoice['status'],
-        invoice_description=invoice['description']
-    )
+    return html
 
 
 def generate_payment_success_html(invoice_id: str) -> str:
