@@ -675,6 +675,7 @@ class WhatsAppService:
                     "Send all items in one message."
                 ),
                 "action": "merchant_name_collected",
+                "show_back_button": True,
             }
 
         # STATE: COLLECT_LINE_ITEMS - Parse and store line items
@@ -699,6 +700,7 @@ class WhatsAppService:
                 return {
                     "response": f"Error parsing line items: {str(e)}\n\nPlease try again following the format:\nItem - Price - Quantity",
                     "action": "validation_error",
+                    "show_back_button": True,
                 }
 
         # STATE: COLLECT_VAT - Parse VAT choice
@@ -729,6 +731,7 @@ class WhatsAppService:
                 return {
                     "response": 'Please reply with "1" or "yes" for VAT, or "2" or "no" for no VAT.',
                     "action": "validation_error",
+                    "show_back_button": True,
                 }
 
         # STATE: COLLECT_DUE_DATE - Parse and store due date
@@ -748,6 +751,7 @@ class WhatsAppService:
                 return {
                     "response": f"Invalid due date: {str(e)}\n\nPlease try again.",
                     "action": "validation_error",
+                    "show_back_button": True,
                 }
 
         # STATE: COLLECT_PHONE - Validate and store phone (supports international numbers)
@@ -767,6 +771,7 @@ class WhatsAppService:
                 return {
                     "response": f"Invalid phone number. Please try again with country code (e.g., 254712345678 or +254712345678):\n{str(e)}",
                     "action": "validation_error",
+                    "show_back_button": True,
                 }
 
         # STATE: COLLECT_NAME - Store name (or skip) - OPTIONAL
@@ -779,6 +784,7 @@ class WhatsAppService:
                     return {
                         "response": "Name must be between 2 and 60 characters. Please try again (or send '-' to skip):",
                         "action": "validation_error",
+                        "show_back_button": True,
                     }
                 self.state_manager.update_data(user_id, "name", text)
 
@@ -803,6 +809,7 @@ class WhatsAppService:
                 return {
                     "response": "Please reply with 1 (Paybill), 2 (Till), or 3 (Phone Number).",
                     "action": "validation_error",
+                    "show_back_button": True,
                 }
 
             method_map = {"1": "PAYBILL", "2": "TILL", "3": "PHONE"}
@@ -942,6 +949,7 @@ class WhatsAppService:
                     return {
                         "response": "Invalid paybill number. Must be 5-7 digits. Please try again:",
                         "action": "validation_error",
+                        "show_back_button": True,
                     }
 
                 self.state_manager.update_data(user_id, "mpesa_paybill_number", text)
@@ -977,7 +985,9 @@ class WhatsAppService:
                     )
 
                     # Show preview
-                    return self._generate_invoice_preview(data)
+                    preview_result = self._generate_invoice_preview(data)
+                    preview_result["show_back_button"] = True
+                    return preview_result
                 else:
                     # Number is greater than saved methods - treat as new paybill number
                     # Validate paybill number (5-7 digits)
@@ -985,6 +995,7 @@ class WhatsAppService:
                         return {
                             "response": "Invalid paybill number. Must be 5-7 digits. Please try again:",
                             "action": "validation_error",
+                            "show_back_button": True,
                         }
 
                     self.state_manager.update_data(
@@ -1006,6 +1017,7 @@ class WhatsAppService:
                     return {
                         "response": "Invalid paybill number. Must be 5-7 digits. Please try again:",
                         "action": "validation_error",
+                        "show_back_button": True,
                     }
 
                 self.state_manager.update_data(user_id, "mpesa_paybill_number", text)
@@ -1026,6 +1038,7 @@ class WhatsAppService:
                 return {
                     "response": "Invalid account number. Must be 1-20 alphanumeric characters. Please try again:",
                     "action": "validation_error",
+                    "show_back_button": True,
                 }
 
             self.state_manager.update_data(user_id, "mpesa_account_number", text)
@@ -1049,6 +1062,7 @@ class WhatsAppService:
                     return {
                         "response": "Invalid till number. Must be 5-7 digits. Please try again:",
                         "action": "validation_error",
+                        "show_back_button": True,
                     }
 
                 self.state_manager.update_data(user_id, "mpesa_till_number", text)
@@ -1077,7 +1091,9 @@ class WhatsAppService:
                     )
 
                     # Show preview
-                    return self._generate_invoice_preview(data)
+                    preview_result = self._generate_invoice_preview(data)
+                    preview_result["show_back_button"] = True
+                    return preview_result
                 else:
                     # Number is greater than saved methods - treat as new till number
                     # Validate till number (5-7 digits)
@@ -1085,6 +1101,7 @@ class WhatsAppService:
                         return {
                             "response": "Invalid till number. Must be 5-7 digits. Please try again:",
                             "action": "validation_error",
+                            "show_back_button": True,
                         }
 
                     self.state_manager.update_data(user_id, "mpesa_till_number", text)
@@ -1104,6 +1121,7 @@ class WhatsAppService:
                     return {
                         "response": "Invalid till number. Must be 5-7 digits. Please try again:",
                         "action": "validation_error",
+                        "show_back_button": True,
                     }
 
                 self.state_manager.update_data(user_id, "mpesa_till_number", text)
@@ -1142,6 +1160,7 @@ class WhatsAppService:
                     return {
                         "response": "Invalid phone number. Please use format 2547XXXXXXXX:",
                         "action": "validation_error",
+                        "show_back_button": True,
                     }
 
             # Saved methods exist - try to parse as selection number
@@ -1159,7 +1178,9 @@ class WhatsAppService:
                     )
 
                     # Show preview
-                    return self._generate_invoice_preview(data)
+                    preview_result = self._generate_invoice_preview(data)
+                    preview_result["show_back_button"] = True
+                    return preview_result
                 else:
                     # Number is greater than saved methods - treat as new phone number
                     # Validate phone number
@@ -1185,6 +1206,7 @@ class WhatsAppService:
                         return {
                             "response": "Invalid phone number. Please use format 2547XXXXXXXX:",
                             "action": "validation_error",
+                            "show_back_button": True,
                         }
             except ValueError:
                 # Not a number - treat as new phone number
@@ -1207,6 +1229,7 @@ class WhatsAppService:
                     return {
                         "response": "Invalid phone number. Please use format 2547XXXXXXXX:",
                         "action": "validation_error",
+                        "show_back_button": True,
                     }
 
         # STATE: ASK_SAVE_PAYMENT_METHOD - Ask if merchant wants to save (only for NEW details)
@@ -1229,6 +1252,7 @@ class WhatsAppService:
                 return {
                     "response": "Please reply 'yes' or 'no':",
                     "action": "validation_error",
+                    "show_back_button": True,
                 }
 
         # STATE: READY - Wait for confirmation
