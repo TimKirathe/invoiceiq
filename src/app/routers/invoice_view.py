@@ -15,7 +15,6 @@ from ..config import settings
 from ..db import get_supabase
 from ..services.mpesa import MPesaService
 from ..utils.logging import get_logger
-from ..utils.invoice_parser import format_line_items_for_template
 
 logger = get_logger(__name__)
 
@@ -62,10 +61,20 @@ def generate_invoice_html(
     # Get merchant name (use merchant_msisdn as fallback)
     merchant_name = invoice["merchant_msisdn"]
 
-    # Format line items for display
+    # Format line items for display - show all items in full detail
     line_items = invoice.get("line_items")
     if line_items and isinstance(line_items, list) and len(line_items) > 0:
-        formatted_items = format_line_items_for_template(line_items)
+        # Format each item with full detail: "Item Name – KES X.XX (x Quantity)"
+        formatted_items_list = []
+        for item in line_items:
+            unit_price_kes = item["unit_price_cents"] / 100
+            formatted_item = (
+                f"{item['name']} – KES {unit_price_kes:,.2f} "
+                f"(x{item['quantity']})"
+            )
+            formatted_items_list.append(formatted_item)
+        # Join with HTML line breaks for proper display
+        formatted_items = "<br>".join(formatted_items_list)
     else:
         formatted_items = "No items specified"
 
