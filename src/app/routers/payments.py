@@ -277,7 +277,17 @@ async def initiate_stk_push(
     )
 
     # Prepare STK Push request
-    account_reference = invoice["id"][:20]  # Max 20 characters
+    # Determine account_reference based on payment method
+    payment_method = invoice.get("mpesa_method")
+    if payment_method == "PAYBILL":
+        # For PAYBILL: use the merchant's paybill account number
+        account_reference = invoice.get("mpesa_account_number", invoice["id"][:20])
+    else:
+        # For TILL (or fallback): use invoice ID
+        account_reference = invoice["id"][:20]
+
+    # Ensure account_reference is max 20 characters
+    account_reference = account_reference[:20]
     transaction_desc = invoice["description"][:20]  # Max 20 characters
 
     try:
