@@ -622,11 +622,11 @@ def parse_mpesa_payment_method(method_type: str, details: str) -> Dict:
                 "Must be 5-7 digits"
             )
 
-        # Validate account number (1-20 alphanumeric characters)
-        if not re.match(r'^[a-zA-Z0-9]{1,20}$', account_number):
+        # Validate account number (1-100 alphanumeric characters)
+        if not re.match(r'^[a-zA-Z0-9\-]{1,100}$', account_number):
             raise ValueError(
                 f"Invalid account number: {account_number}. "
-                "Must be 1-20 alphanumeric characters"
+                "Must be 1-100 alphanumeric characters"
             )
 
         result["paybill_number"] = paybill_number
