@@ -38,6 +38,7 @@ CREATE TABLE payments (
   raw_request JSON,
   raw_callback JSON,
   idempotency_key TEXT UNIQUE,
+  retry_count INTEGER DEFAULT 0,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

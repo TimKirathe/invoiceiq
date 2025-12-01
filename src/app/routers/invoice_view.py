@@ -15,6 +15,11 @@ from ..config import settings
 from ..db import get_supabase
 from ..services.mpesa import MPesaService
 from ..utils.logging import get_logger
+from ..utils.payment_retry import (
+    can_retry_payment,
+    get_payment_by_invoice_id,
+    reset_invoice_to_pending,
+)
 
 logger = get_logger(__name__)
 
@@ -936,7 +941,11 @@ async def initiate_payment(
     )
 
     # Validate payment phone format
-    if not payment_phone or len(payment_phone) != 12 or not payment_phone.startswith("254"):
+    if (
+        not payment_phone
+        or len(payment_phone) != 12
+        or not payment_phone.startswith("254")
+    ):
         logger.warning(
             "Invalid payment phone format",
             extra={"invoice_id": invoice_id, "payment_phone": payment_phone},
@@ -970,14 +979,97 @@ async def initiate_payment(
                 error_message="This invoice has already been paid.",
             )
 
-        if invoice["status"] in ["CANCELLED", "FAILED"]:
+        if invoice["status"] == "CANCELLED":
             logger.info(
-                "Invoice cannot be paid due to status",
-                extra={"invoice_id": invoice_id, "status": invoice["status"]},
+                "Invoice cancelled",
+                extra={"invoice_id": invoice_id},
             )
             return generate_error_html(
                 invoice_id=invoice_id,
-                error_message=f"This invoice is {invoice['status'].lower()} and cannot be paid.",
+                error_message="This invoice has been cancelled and cannot be paid.",
+            )
+
+        # Handle FAILED status with retry logic
+        if invoice["status"] == "FAILED":
+            logger.info(
+                "Attempting payment retry for FAILED invoice",
+                extra={"invoice_id": invoice_id},
+            )
+
+            # Get existing payment record
+            existing_payment = get_payment_by_invoice_id(invoice_id, supabase)
+
+            if not existing_payment:
+                logger.warning(
+                    "No payment record found for FAILED invoice",
+                    extra={"invoice_id": invoice_id},
+                )
+                return generate_error_html(
+                    invoice_id=invoice_id,
+                    error_message="Payment record not found. Please contact support.",
+                )
+
+            # Check if retry is allowed
+            can_retry, error_message = can_retry_payment(existing_payment)
+
+            if not can_retry:
+                logger.info(
+                    "Payment retry blocked",
+                    extra={"invoice_id": invoice_id, "reason": error_message},
+                )
+                return generate_error_html(
+                    invoice_id=invoice_id,
+                    error_message=error_message,
+                )
+
+            # Retry is allowed - reset invoice status to PENDING
+            if not reset_invoice_to_pending(invoice_id, supabase):
+                logger.error(
+                    "Failed to reset invoice status for retry",
+                    extra={"invoice_id": invoice_id},
+                )
+                return generate_error_html(
+                    invoice_id=invoice_id,
+                    error_message="Failed to reset invoice status. Please try again.",
+                )
+
+            # Update invoice object for processing below
+            invoice["status"] = "PENDING"
+
+            # Increment retry count on existing payment
+            current_retry_count = existing_payment.get("retry_count", 0)
+            try:
+                supabase.table("payments").update(
+                    {"retry_count": current_retry_count + 1}
+                ).eq("id", existing_payment["id"]).execute()
+
+                logger.info(
+                    "Incremented payment retry_count for retry attempt",
+                    extra={
+                        "payment_id": existing_payment["id"],
+                        "new_retry_count": current_retry_count + 1,
+                    },
+                )
+            except Exception as retry_error:
+                logger.error(
+                    "Failed to increment retry_count",
+                    extra={
+                        "error": str(retry_error),
+                        "payment_id": existing_payment["id"],
+                    },
+                    exc_info=True,
+                )
+                return generate_error_html(
+                    invoice_id=invoice_id,
+                    error_message="Failed to update payment retry count. Please try again.",
+                )
+
+            logger.info(
+                "Payment retry approved - proceeding with STK Push",
+                extra={
+                    "invoice_id": invoice_id,
+                    "retry_count": current_retry_count + 1,
+                },
             )
 
         # Check if payment already exists for this invoice

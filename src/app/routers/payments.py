@@ -17,6 +17,11 @@ from ..services.idempotency import check_callback_processed
 from ..services.mpesa import MPesaService
 from ..services.whatsapp import WhatsAppService
 from ..utils.logging import get_logger
+from ..utils.payment_retry import (
+    can_retry_payment,
+    get_payment_by_invoice_id,
+    reset_invoice_to_pending,
+)
 
 logger = get_logger(__name__)
 
@@ -227,19 +232,107 @@ async def initiate_stk_push(
         )
         raise HTTPException(status_code=404, detail="Invoice not found")
 
-    # Validate invoice status
-    if invoice["status"] != "SENT":
+    # Validate invoice status - allow SENT and FAILED (for retries)
+    invoice_status = invoice["status"]
+
+    if invoice_status not in ["SENT", "FAILED"]:
         logger.warning(
             "Invalid invoice status for payment",
             extra={
                 "invoice_id": invoice["id"],
-                "status": invoice["status"],
-                "expected_status": "SENT",
+                "status": invoice_status,
+                "expected_statuses": ["SENT", "FAILED"],
             },
         )
         raise HTTPException(
             status_code=400,
-            detail=f"Invoice status must be SENT (current: {invoice['status']})",
+            detail=f"Invoice status must be SENT or FAILED (current: {invoice_status})",
+        )
+
+    # Handle FAILED status with retry logic
+    if invoice_status == "FAILED":
+        logger.info(
+            "Attempting payment retry for FAILED invoice",
+            extra={"invoice_id": invoice["id"]},
+        )
+
+        # Get existing payment record
+        existing_payment = get_payment_by_invoice_id(invoice["id"], supabase)
+
+        if not existing_payment:
+            logger.warning(
+                "No payment record found for FAILED invoice",
+                extra={"invoice_id": invoice["id"]},
+            )
+            raise HTTPException(
+                status_code=400,
+                detail="Payment record not found. Please contact support.",
+            )
+
+        # Check if retry is allowed
+        can_retry, error_message = can_retry_payment(existing_payment)
+
+        if not can_retry:
+            logger.info(
+                "Payment retry blocked",
+                extra={"invoice_id": invoice["id"], "reason": error_message},
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=error_message,
+            )
+
+        # Increment retry count on existing payment
+        current_retry_count = existing_payment.get("retry_count", 0)
+        try:
+            from datetime import datetime, timezone
+
+            supabase.table("payments").update({
+                "retry_count": current_retry_count + 1,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }).eq("id", existing_payment["id"]).execute()
+
+            logger.info(
+                "Incremented payment retry_count for retry attempt",
+                extra={
+                    "payment_id": existing_payment["id"],
+                    "new_retry_count": current_retry_count + 1,
+                },
+            )
+        except Exception as retry_error:
+            logger.error(
+                "Failed to increment retry_count",
+                extra={
+                    "error": str(retry_error),
+                    "payment_id": existing_payment["id"],
+                },
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to update payment retry count. Please try again.",
+            )
+
+        # Reset invoice status to PENDING for retry
+        if not reset_invoice_to_pending(invoice["id"], supabase):
+            logger.error(
+                "Failed to reset invoice status for retry",
+                extra={"invoice_id": invoice["id"]},
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to reset invoice status. Please try again.",
+            )
+
+        # Update local invoice object for processing below
+        invoice["status"] = "PENDING"
+
+        logger.info(
+            "Payment retry approved - proceeding with STK Push",
+            extra={
+                "invoice_id": invoice["id"],
+                "retry_count": current_retry_count + 1,
+            },
         )
 
     # Convert amount from cents to whole KES
@@ -519,6 +612,7 @@ async def handle_stk_callback(
                     invoice_id=invoice["id"],
                     amount_kes=amount_kes,
                     mpesa_receipt=payment.get("mpesa_receipt") or "N/A",
+                    db_session=supabase,
                 )
 
                 # Send receipt to merchant
@@ -528,6 +622,7 @@ async def handle_stk_callback(
                     customer_msisdn=invoice["msisdn"],
                     amount_kes=amount_kes,
                     mpesa_receipt=payment.get("mpesa_receipt") or "N/A",
+                    db_session=supabase,
                 )
 
                 logger.info(
