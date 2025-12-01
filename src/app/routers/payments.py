@@ -436,7 +436,7 @@ async def handle_stk_callback(
         result_code = parsed["result_code"]
 
         # Check for duplicate callback (idempotency)
-        existing_processed = await check_callback_processed(checkout_request_id)
+        existing_processed = await check_callback_processed(checkout_request_id, supabase)
         if existing_processed:
             logger.info(
                 "Duplicate callback detected - already processed",
