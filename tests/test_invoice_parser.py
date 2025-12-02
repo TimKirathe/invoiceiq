@@ -829,8 +829,6 @@ class TestParseDueDate:
     def test_parse_boundary_dates(self):
         """Test parsing boundary dates within 365 days."""
         today = date.today()
-        # Calculate a date that is exactly 100 days from now (well within 365 days)
-        future_date = today + timedelta(days=100)
 
         result = parse_due_date(f"01/01/{today.year + 1}")
         assert result == f"Due: 1 January {today.year + 1}"

@@ -1163,6 +1163,21 @@ async def initiate_payment(
         # Initiate STK Push
         # Pass payment method from invoice (PAYBILL or TILL)
         payment_method = invoice.get("mpesa_method")
+
+        # Validate that payment method is not PHONE (STK Push only supports PAYBILL and TILL)
+        if payment_method == "PHONE":
+            logger.error(
+                "STK Push not supported for PHONE payment method",
+                extra={
+                    "invoice_id": invoice["id"],
+                    "payment_method": payment_method,
+                },
+            )
+            raise HTTPException(
+                status_code=400,
+                detail="STK Push is not supported for PHONE payment method. Only PAYBILL and TILL are supported.",
+            )
+
         stk_response = await mpesa_service.initiate_stk_push(
             phone_number=payment_phone,
             amount=amount_kes,

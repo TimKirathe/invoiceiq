@@ -980,6 +980,7 @@ class WhatsAppService:
                         "mpesa_account_number",
                         selected_method["account_number"],
                     )
+                    self.state_manager.update_data(user_id, "mpesa_method", "PAYBILL")
                     self.state_manager.update_data(user_id, "used_saved_method", True)
                     self.state_manager.set_state(
                         user_id, self.state_manager.STATE_READY, data
@@ -1086,6 +1087,7 @@ class WhatsAppService:
                     self.state_manager.update_data(
                         user_id, "mpesa_till_number", selected_method["till_number"]
                     )
+                    self.state_manager.update_data(user_id, "mpesa_method", "TILL")
                     self.state_manager.update_data(user_id, "used_saved_method", True)
                     self.state_manager.set_state(
                         user_id, self.state_manager.STATE_READY, data
@@ -1173,6 +1175,7 @@ class WhatsAppService:
                     self.state_manager.update_data(
                         user_id, "mpesa_phone_number", selected_method["phone_number"]
                     )
+                    self.state_manager.update_data(user_id, "mpesa_method", "PHONE")
                     self.state_manager.update_data(user_id, "used_saved_method", True)
                     self.state_manager.set_state(
                         user_id, self.state_manager.STATE_READY, data

@@ -831,7 +831,8 @@ async def receive_webhook(
                     )
 
                     # Register C2B URLs if notifications enabled
-                    if c2b_notifications_enabled:
+                    # Skip C2B registration for PHONE payment method (only PAYBILL and TILL supported)
+                    if c2b_notifications_enabled and mpesa_method != "PHONE":
                         try:
                             # Determine shortcode and type
                             shortcode = mpesa_paybill_number or mpesa_till_number
