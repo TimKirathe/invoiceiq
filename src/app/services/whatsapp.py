@@ -56,6 +56,7 @@ class ConversationStateManager:
     STATE_COLLECT_TILL_DETAILS = "COLLECT_TILL_DETAILS"
     STATE_COLLECT_PHONE_DETAILS = "COLLECT_PHONE_DETAILS"
     STATE_ASK_SAVE_PAYMENT_METHOD = "ASK_SAVE_PAYMENT_METHOD"
+    STATE_ASK_C2B_NOTIFICATIONS = "ASK_C2B_NOTIFICATIONS"
     STATE_READY = "READY"
 
     # State back navigation map - defines which state to return to when "Undo" is clicked
@@ -72,6 +73,7 @@ class ConversationStateManager:
         STATE_COLLECT_TILL_DETAILS: STATE_COLLECT_MPESA_METHOD,
         STATE_COLLECT_PHONE_DETAILS: STATE_COLLECT_MPESA_METHOD,
         STATE_ASK_SAVE_PAYMENT_METHOD: None,  # Dynamic - depends on payment method
+        STATE_ASK_C2B_NOTIFICATIONS: STATE_ASK_SAVE_PAYMENT_METHOD,
     }
 
     @classmethod
@@ -1239,6 +1241,60 @@ class WhatsAppService:
                 self.state_manager.update_data(
                     user_id, "save_payment_method", save_method
                 )
+
+                # Check if we should ask about C2B notifications
+                # Only ask if: vendor chose to save AND payment method is PAYBILL or TILL
+                mpesa_method = data.get("mpesa_method")
+                should_ask_c2b = save_method and mpesa_method in ["PAYBILL", "TILL"]
+
+                if should_ask_c2b:
+                    # Transition to C2B notifications question
+                    self.state_manager.set_state(
+                        user_id, self.state_manager.STATE_ASK_C2B_NOTIFICATIONS, data
+                    )
+
+                    # Determine the payment method type for the message
+                    method_type = "Paybill" if mpesa_method == "PAYBILL" else "Till"
+
+                    return {
+                        "response": (
+                            f"Would you like to receive WhatsApp notifications when customers pay to your {method_type}?\n\n"
+                            f"You'll get instant alerts with:\n"
+                            f"✓ Payment amount\n"
+                            f"✓ Customer details\n"
+                            f"✓ Outstanding balance\n\n"
+                            f"1 - Yes, notify me\n"
+                            f"2 - No thanks"
+                        ),
+                        "action": "asking_c2b_notifications",
+                        "show_back_button": True,
+                    }
+                else:
+                    # Skip C2B question and go directly to preview
+                    # Set c2b_notifications_enabled to False since we're skipping
+                    self.state_manager.update_data(user_id, "c2b_notifications_enabled", False)
+                    self.state_manager.set_state(
+                        user_id, self.state_manager.STATE_READY, data
+                    )
+
+                    # Show preview - add back button flag
+                    preview_result = self._generate_invoice_preview(data)
+                    preview_result["show_back_button"] = True
+                    return preview_result
+            else:
+                return {
+                    "response": "Please reply 'yes' or 'no':",
+                    "action": "validation_error",
+                    "show_back_button": True,
+                }
+
+        # STATE: ASK_C2B_NOTIFICATIONS - Ask if merchant wants C2B notifications
+        elif current_state == self.state_manager.STATE_ASK_C2B_NOTIFICATIONS:
+            if text in ["1", "2"]:
+                c2b_enabled = text == "1"
+                self.state_manager.update_data(
+                    user_id, "c2b_notifications_enabled", c2b_enabled
+                )
                 self.state_manager.set_state(
                     user_id, self.state_manager.STATE_READY, data
                 )
@@ -1249,7 +1305,7 @@ class WhatsAppService:
                 return preview_result
             else:
                 return {
-                    "response": "Please reply 'yes' or 'no':",
+                    "response": "Please reply with 1 (Yes, notify me) or 2 (No thanks):",
                     "action": "validation_error",
                     "show_back_button": True,
                 }
@@ -1634,6 +1690,7 @@ class WhatsAppService:
                 "saved_phone_methods",
             ],
             self.state_manager.STATE_ASK_SAVE_PAYMENT_METHOD: ["save_payment_method"],
+            self.state_manager.STATE_ASK_C2B_NOTIFICATIONS: ["c2b_notifications_enabled"],
         }
 
         return state_data_map.get(state, [])
@@ -1910,6 +1967,25 @@ class WhatsAppService:
             return {
                 "response": response_msg,
                 "action": "back_to_save_payment_method",
+                "show_back_button": True,
+            }
+
+        elif state == self.state_manager.STATE_ASK_C2B_NOTIFICATIONS:
+            # Determine the payment method type for the message
+            mpesa_method = data.get("mpesa_method")
+            method_type = "Paybill" if mpesa_method == "PAYBILL" else "Till"
+
+            return {
+                "response": (
+                    f"Would you like to receive WhatsApp notifications when customers pay to your {method_type}?\n\n"
+                    f"You'll get instant alerts with:\n"
+                    f"✓ Payment amount\n"
+                    f"✓ Customer details\n"
+                    f"✓ Outstanding balance\n\n"
+                    f"1 - Yes, notify me\n"
+                    f"2 - No thanks"
+                ),
+                "action": "back_to_c2b_notifications",
                 "show_back_button": True,
             }
 

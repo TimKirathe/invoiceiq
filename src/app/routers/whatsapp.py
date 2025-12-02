@@ -787,6 +787,7 @@ async def receive_webhook(
                     mpesa_phone_number = invoice_data_from_flow.get("mpesa_phone_number")
                     save_payment_method = invoice_data_from_flow.get("save_payment_method", False)
                     used_saved_method = invoice_data_from_flow.get("used_saved_method", False)
+                    c2b_notifications_enabled = invoice_data_from_flow.get("c2b_notifications_enabled", False)
 
                     # Calculate totals from line items
                     totals = calculate_invoice_totals(line_items, include_vat)
@@ -815,6 +816,7 @@ async def receive_webhook(
                         "mpesa_account_number": mpesa_account_number,
                         "mpesa_till_number": mpesa_till_number,
                         "mpesa_phone_number": mpesa_phone_number,
+                        "c2b_notifications_enabled": c2b_notifications_enabled,
                         "status": "PENDING",
                         "pay_ref": None,
                         "pay_link": None,
