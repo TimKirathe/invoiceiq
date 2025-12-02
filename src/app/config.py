@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     mpesa_callback_url: str
     mpesa_environment: str = "sandbox"  # "sandbox" or "production"
     mpesa_payment_type: str = "paybill"  # "paybill" or "till"
+    c2b_confirmation_url: str = "https://api.invoiceiq.org/mpesa/c2b/confirmation"
 
     # Supabase Configuration
     supabase_url: str

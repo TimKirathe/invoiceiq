@@ -830,6 +830,108 @@ async def receive_webhook(
                         extra={"invoice_id": invoice["id"], "merchant_msisdn": sender},
                     )
 
+                    # Register C2B URLs if notifications enabled
+                    if c2b_notifications_enabled:
+                        try:
+                            # Determine shortcode and type
+                            shortcode = mpesa_paybill_number or mpesa_till_number
+                            shortcode_type = "PAYBILL" if mpesa_paybill_number else "TILL"
+                            account_number = mpesa_account_number if shortcode_type == "PAYBILL" else None
+
+                            logger.info(
+                                "Checking C2B registration status",
+                                extra={
+                                    "shortcode": shortcode,
+                                    "shortcode_type": shortcode_type,
+                                    "account_number": account_number,
+                                },
+                            )
+
+                            # Check if already registered
+                            registration_query = (
+                                supabase.table("c2b_registrations")
+                                .select("id, registration_status")
+                                .eq("shortcode", shortcode)
+                            )
+
+                            # Add account_number filter for PAYBILL
+                            if account_number:
+                                registration_query = registration_query.eq("account_number", account_number)
+                            else:
+                                registration_query = registration_query.is_("account_number", "null")
+
+                            existing_registration = registration_query.execute()
+
+                            if existing_registration.data:
+                                logger.info(
+                                    "C2B URLs already registered for shortcode",
+                                    extra={
+                                        "shortcode": shortcode,
+                                        "account_number": account_number,
+                                        "registration_id": existing_registration.data[0]["id"],
+                                        "status": existing_registration.data[0]["registration_status"],
+                                    },
+                                )
+                            else:
+                                # Register with Daraja
+                                logger.info(
+                                    "Registering C2B URLs with M-PESA",
+                                    extra={"shortcode": shortcode, "shortcode_type": shortcode_type},
+                                )
+
+                                mpesa_service = MPesaService(environment=settings.mpesa_environment)
+                                registration_result = await mpesa_service.register_c2b_url(
+                                    shortcode=shortcode,
+                                    shortcode_type=shortcode_type,
+                                    account_number=account_number,
+                                )
+
+                                # Store registration result
+                                registration_status = "SUCCESS" if registration_result["success"] else "FAILED"
+                                registration_data = {
+                                    "shortcode": shortcode,
+                                    "shortcode_type": shortcode_type,
+                                    "account_number": account_number,
+                                    "vendor_phone": sender,
+                                    "confirmation_url": settings.c2b_confirmation_url,
+                                    "registration_status": registration_status,
+                                    "daraja_response": registration_result,
+                                }
+
+                                supabase.table("c2b_registrations").insert(registration_data).execute()
+
+                                if registration_result["success"]:
+                                    logger.info(
+                                        "C2B URLs registered successfully",
+                                        extra={
+                                            "shortcode": shortcode,
+                                            "account_number": account_number,
+                                            "response_code": registration_result["response_code"],
+                                        },
+                                    )
+                                else:
+                                    logger.warning(
+                                        "C2B URL registration failed but invoice creation continues",
+                                        extra={
+                                            "shortcode": shortcode,
+                                            "account_number": account_number,
+                                            "response_code": registration_result["response_code"],
+                                            "response_description": registration_result["response_description"],
+                                        },
+                                    )
+
+                        except Exception as c2b_error:
+                            logger.error(
+                                "C2B registration failed but invoice creation continues",
+                                extra={
+                                    "error": str(c2b_error),
+                                    "shortcode": shortcode if 'shortcode' in locals() else None,
+                                    "invoice_id": invoice["id"],
+                                },
+                                exc_info=True,
+                            )
+                            # Don't fail invoice creation if C2B registration fails
+
                     # Save payment method if requested and not using saved method
                     if save_payment_method and not used_saved_method:
                         try:

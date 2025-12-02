@@ -498,3 +498,188 @@ class MPesaService:
                 exc_info=True,
             )
             raise ValueError(f"Invalid STK Push response: {e}")
+
+    @retry(
+        retry=retry_if_exception_type((httpx.RequestError, httpx.TimeoutException)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=4),
+        before_sleep=before_sleep_log(logger, logging.INFO),
+        reraise=True,
+    )
+    async def register_c2b_url(
+        self,
+        shortcode: str,
+        shortcode_type: str,
+        account_number: str | None = None,
+    ) -> Dict[str, Any]:
+        """
+        Register C2B confirmation and validation URLs with M-PESA Daraja API.
+
+        This method registers URLs that M-PESA will call when customers make payments
+        to the specified shortcode (Paybill or Till). The URLs receive payment
+        notifications after transactions are completed.
+
+        Retries on network errors with exponential backoff:
+        - 3 attempts total
+        - Wait times: 1s, 2s, 4s
+        - Retries only on network/timeout errors, not API errors
+
+        Args:
+            shortcode: Business shortcode (Paybill or Till number)
+            shortcode_type: Type of shortcode - "PAYBILL" or "TILL"
+            account_number: Account number (only for Paybill, None for Till)
+
+        Returns:
+            Dictionary with registration result:
+            - success: bool indicating if registration was successful
+            - response_code: M-PESA response code ("0" = success)
+            - response_description: Human-readable response message
+            - originator_conversation_id: Unique request identifier from M-PESA
+
+        Raises:
+            httpx.HTTPError: If registration request fails after retries
+            ValueError: If response is invalid
+
+        Note:
+            - Uses same URL for both ConfirmationURL and ValidationURL
+            - ResponseType is set to "Completed" (no external validation)
+            - Daraja may return error 500.003.1001 if URLs already registered
+        """
+        logger.info(
+            "Registering C2B URLs with M-PESA",
+            extra={
+                "shortcode": shortcode,
+                "shortcode_type": shortcode_type,
+                "account_number": account_number,
+            },
+        )
+
+        # Get access token
+        access_token = await self.get_access_token()
+
+        # Determine correct endpoint based on environment
+        c2b_register_url = f"{self.base_url}/mpesa/c2b/v2/registerurl"
+
+        # Get confirmation URL from settings
+        confirmation_url = settings.c2b_confirmation_url
+
+        # Construct request payload
+        payload = {
+            "ShortCode": shortcode,
+            "ResponseType": "Completed",
+            "ConfirmationURL": confirmation_url,
+            "ValidationURL": confirmation_url,
+        }
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        }
+
+        logger.info(
+            "Sending C2B URL registration request",
+            extra={
+                "url": c2b_register_url,
+                "shortcode": shortcode,
+                "confirmation_url": confirmation_url,
+            },
+        )
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    c2b_register_url,
+                    json=payload,
+                    headers=headers,
+                )
+
+                # Log raw response for debugging
+                logger.info(
+                    "C2B registration raw response",
+                    extra={
+                        "status_code": response.status_code,
+                        "response_text": response.text[:500]
+                        if len(response.text) > 500
+                        else response.text,
+                    },
+                )
+
+                response.raise_for_status()
+                data = response.json()
+
+                response_code = data.get("ResponseCode", "")
+                response_desc = data.get("ResponseDescription", "")
+                originator_conv_id = data.get("OriginatorCoversationID", "")
+
+                # Check if registration was successful
+                success = response_code == "0"
+
+                if success:
+                    logger.info(
+                        "C2B URL registration successful",
+                        extra={
+                            "shortcode": shortcode,
+                            "response_code": response_code,
+                            "response_description": response_desc,
+                        },
+                    )
+                else:
+                    logger.warning(
+                        "C2B URL registration returned non-success code",
+                        extra={
+                            "shortcode": shortcode,
+                            "response_code": response_code,
+                            "response_description": response_desc,
+                        },
+                    )
+
+                return {
+                    "success": success,
+                    "response_code": response_code,
+                    "response_description": response_desc,
+                    "originator_conversation_id": originator_conv_id,
+                }
+
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "M-PESA API returned error for C2B registration",
+                extra={
+                    "status_code": e.response.status_code,
+                    "response": e.response.text,
+                    "shortcode": shortcode,
+                },
+                exc_info=True,
+            )
+
+            # Handle "URLs already registered" error gracefully
+            if "500.003.1001" in e.response.text or "already registered" in e.response.text.lower():
+                logger.warning(
+                    "C2B URLs already registered for shortcode",
+                    extra={"shortcode": shortcode},
+                )
+                return {
+                    "success": True,
+                    "response_code": "500.003.1001",
+                    "response_description": "URLs already registered (treated as success)",
+                    "originator_conversation_id": "",
+                }
+
+            raise Exception(f"C2B registration failed: {e.response.status_code}")
+
+        except httpx.HTTPError as e:
+            logger.error(
+                "Failed to register C2B URLs",
+                extra={
+                    "error": str(e),
+                    "shortcode": shortcode,
+                },
+                exc_info=True,
+            )
+            raise
+        except (ValueError, KeyError) as e:
+            logger.error(
+                "Invalid response from M-PESA C2B registration API",
+                extra={"error": str(e)},
+                exc_info=True,
+            )
+            raise ValueError(f"Invalid C2B registration response: {e}")
