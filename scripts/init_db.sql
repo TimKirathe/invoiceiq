@@ -32,7 +32,7 @@ CREATE TABLE invoices (
 CREATE TABLE payments (
   id TEXT PRIMARY KEY,
   invoice_id TEXT NOT NULL REFERENCES invoices(id),
-  method TEXT NOT NULL CHECK (method IN ('MPESA_STK')),
+  method TEXT NOT NULL CHECK (method IN ('MPESA_STK', 'C2B')),
   status TEXT NOT NULL CHECK (status IN ('INITIATED','SUCCESS','FAILED','EXPIRED')),
   mpesa_receipt TEXT,
   amount_cents INTEGER NOT NULL,

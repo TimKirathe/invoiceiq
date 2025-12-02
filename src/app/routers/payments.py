@@ -730,3 +730,305 @@ async def handle_stk_callback(
         )
         # Still return 200 OK to prevent retries
         return success_response
+
+
+@router.post("/mpesa/c2b/confirmation", status_code=200)
+async def handle_c2b_confirmation(
+    request: Request,
+) -> Dict[str, str]:
+    """
+    Handle M-PESA C2B confirmation callback.
+
+    Receives payment notifications from M-PESA when customers pay to a registered
+    Paybill or Till number. Matches payments to invoices based on shortcode and
+    account reference, calculates outstanding balance, and updates invoice status.
+
+    IMPORTANT: Must return 200 OK to M-PESA to acknowledge receipt, even on errors.
+
+    Args:
+        request: FastAPI request object containing C2B confirmation payload
+
+    Returns:
+        Success response dict: {"ResultCode": "0", "ResultDesc": "Accepted"}
+
+    Expected C2B Payload Structure:
+        {
+            "TransID": "NLJ7RT61SV",
+            "TransAmount": "100.00",
+            "BillRefNumber": "account123",
+            "MSISDN": "254708374149",
+            "BusinessShortCode": "600984",
+            "OrgAccountBalance": "1000.00",
+            "ThirdPartyTransID": "",
+            "TransTime": "20191219102115",
+            "FirstName": "John",
+            "MiddleName": "",
+            "LastName": "Doe"
+        }
+    """
+    supabase = get_supabase()
+
+    # Always return 200 OK to M-PESA, regardless of processing outcome
+    success_response = {"ResultCode": "0", "ResultDesc": "Accepted"}
+
+    try:
+        # Parse request body
+        payload = await request.json()
+
+        logger.info(
+            "Received C2B confirmation callback",
+            extra={"payload": payload},
+        )
+
+        # Extract required fields from C2B payload
+        trans_id = payload.get("TransID")
+        trans_amount = payload.get("TransAmount")
+        bill_ref_number = payload.get("BillRefNumber")
+        msisdn = payload.get("MSISDN")
+        business_shortcode = payload.get("BusinessShortCode")
+
+        # Validate required fields
+        if not trans_id:
+            logger.error("Missing TransID in C2B payload")
+            return success_response
+
+        if not trans_amount:
+            logger.error("Missing TransAmount in C2B payload", extra={"trans_id": trans_id})
+            return success_response
+
+        if not bill_ref_number:
+            logger.error("Missing BillRefNumber in C2B payload", extra={"trans_id": trans_id})
+            return success_response
+
+        if not msisdn:
+            logger.error("Missing MSISDN in C2B payload", extra={"trans_id": trans_id})
+            return success_response
+
+        if not business_shortcode:
+            logger.error("Missing BusinessShortCode in C2B payload", extra={"trans_id": trans_id})
+            return success_response
+
+        # Convert TransAmount to cents
+        try:
+            amount_paid_cents = int(float(trans_amount) * 100)
+        except (ValueError, TypeError) as e:
+            logger.error(
+                "Invalid TransAmount format",
+                extra={"trans_id": trans_id, "trans_amount": trans_amount, "error": str(e)},
+            )
+            return success_response
+
+        # Convert BusinessShortCode to string for comparison
+        business_shortcode_str = str(business_shortcode)
+
+        logger.info(
+            "Parsed C2B confirmation",
+            extra={
+                "trans_id": trans_id,
+                "amount_paid_cents": amount_paid_cents,
+                "bill_ref_number": bill_ref_number,
+                "msisdn": msisdn,
+                "business_shortcode": business_shortcode_str,
+            },
+        )
+
+        # Check for duplicate payment (idempotency) - use TransID as unique identifier
+        existing_payment_response = (
+            supabase.table("payments")
+            .select("*")
+            .eq("checkout_request_id", trans_id)
+            .execute()
+        )
+        existing_payment = existing_payment_response.data[0] if existing_payment_response.data else None
+
+        if existing_payment:
+            logger.info(
+                "Duplicate C2B payment detected - already processed",
+                extra={
+                    "trans_id": trans_id,
+                    "payment_id": existing_payment["id"],
+                    "payment_status": existing_payment["status"],
+                },
+            )
+            return success_response
+
+        # Match payment to invoice
+        # Query invoices where:
+        # - (mpesa_paybill_number OR mpesa_till_number) matches BusinessShortCode
+        # - mpesa_account_number matches BillRefNumber
+        # - c2b_notifications_enabled = TRUE
+        # - status IN ('SENT', 'PENDING', 'FAILED')
+        # Order by created_at DESC, take most recent match
+
+        # Build query using Supabase OR filter
+        invoice_response = (
+            supabase.table("invoices")
+            .select("*")
+            .eq("mpesa_account_number", bill_ref_number)
+            .eq("c2b_notifications_enabled", True)
+            .in_("status", ["SENT", "PENDING", "FAILED"])
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        # Filter results by shortcode match (Supabase doesn't support complex OR in Python client)
+        matching_invoice = None
+        for inv in invoice_response.data:
+            paybill = inv.get("mpesa_paybill_number")
+            till = inv.get("mpesa_till_number")
+            if (paybill and str(paybill) == business_shortcode_str) or \
+               (till and str(till) == business_shortcode_str):
+                matching_invoice = inv
+                break
+
+        if not matching_invoice:
+            logger.warning(
+                "No matching invoice found for C2B payment",
+                extra={
+                    "trans_id": trans_id,
+                    "business_shortcode": business_shortcode_str,
+                    "bill_ref_number": bill_ref_number,
+                },
+            )
+            # Log unmatched payment for reconciliation but acknowledge to M-PESA
+            return success_response
+
+        logger.info(
+            "Matched C2B payment to invoice",
+            extra={
+                "trans_id": trans_id,
+                "invoice_id": matching_invoice["id"],
+                "invoice_status": matching_invoice["status"],
+            },
+        )
+
+        # Calculate outstanding balance
+        invoice_total_cents = matching_invoice["amount_cents"]
+        outstanding_balance_cents = max(0, invoice_total_cents - amount_paid_cents)
+
+        logger.info(
+            "Calculated payment balance",
+            extra={
+                "trans_id": trans_id,
+                "invoice_id": matching_invoice["id"],
+                "invoice_total_cents": invoice_total_cents,
+                "amount_paid_cents": amount_paid_cents,
+                "outstanding_balance_cents": outstanding_balance_cents,
+            },
+        )
+
+        # Create payment record
+        from datetime import datetime, timezone
+        from uuid import uuid4
+
+        payment_id = str(uuid4())
+        payment_data = {
+            "id": payment_id,
+            "invoice_id": matching_invoice["id"],
+            "method": "C2B",
+            "status": "SUCCESS",
+            "mpesa_receipt": trans_id,
+            "amount_cents": amount_paid_cents,
+            "checkout_request_id": trans_id,  # Use TransID as unique identifier
+            "raw_request": {},
+            "raw_callback": payload,
+            "idempotency_key": f"c2b-{trans_id}",  # Generate idempotency key from TransID
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        try:
+            payment_response = supabase.table("payments").insert(payment_data).execute()
+            payment = payment_response.data[0] if payment_response.data else None
+
+            if not payment:
+                logger.error(
+                    "Failed to create payment record",
+                    extra={"trans_id": trans_id, "invoice_id": matching_invoice["id"]},
+                )
+                return success_response
+
+            logger.info(
+                "Created C2B payment record",
+                extra={
+                    "payment_id": payment["id"],
+                    "invoice_id": matching_invoice["id"],
+                    "trans_id": trans_id,
+                },
+            )
+
+        except Exception as payment_error:
+            logger.error(
+                "Error creating C2B payment record",
+                extra={
+                    "trans_id": trans_id,
+                    "invoice_id": matching_invoice["id"],
+                    "error": str(payment_error),
+                },
+                exc_info=True,
+            )
+            return success_response
+
+        # Update invoice status if fully paid
+        if outstanding_balance_cents == 0:
+            try:
+                invoice_update_data = {
+                    "status": "PAID",
+                    "pay_ref": trans_id,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+                supabase.table("invoices").update(invoice_update_data).eq("id", matching_invoice["id"]).execute()
+
+                logger.info(
+                    "Invoice marked as PAID (full payment received)",
+                    extra={
+                        "invoice_id": matching_invoice["id"],
+                        "trans_id": trans_id,
+                        "amount_paid_cents": amount_paid_cents,
+                    },
+                )
+
+            except Exception as invoice_error:
+                logger.error(
+                    "Error updating invoice status to PAID",
+                    extra={
+                        "invoice_id": matching_invoice["id"],
+                        "trans_id": trans_id,
+                        "error": str(invoice_error),
+                    },
+                    exc_info=True,
+                )
+                # Don't return error - payment record was created successfully
+        else:
+            logger.info(
+                "Partial payment received - invoice remains in current status",
+                extra={
+                    "invoice_id": matching_invoice["id"],
+                    "trans_id": trans_id,
+                    "amount_paid_cents": amount_paid_cents,
+                    "outstanding_balance_cents": outstanding_balance_cents,
+                    "invoice_status": matching_invoice["status"],
+                },
+            )
+
+        logger.info(
+            "C2B confirmation processed successfully",
+            extra={
+                "trans_id": trans_id,
+                "invoice_id": matching_invoice["id"],
+                "payment_id": payment_id,
+                "fully_paid": outstanding_balance_cents == 0,
+            },
+        )
+
+        return success_response
+
+    except Exception as e:
+        logger.error(
+            "Error processing C2B confirmation callback",
+            extra={"error": str(e)},
+            exc_info=True,
+        )
+        # Still return 200 OK to prevent retries
+        return success_response
