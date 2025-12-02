@@ -1012,6 +1012,37 @@ async def handle_c2b_confirmation(
                 },
             )
 
+        # Send WhatsApp notification to vendor
+        try:
+            whatsapp_service = WhatsAppService()
+            await whatsapp_service.send_c2b_payment_notification(
+                vendor_phone=matching_invoice["merchant_msisdn"],
+                customer_phone=msisdn,
+                amount_paid=amount_paid_cents,
+                outstanding_balance=outstanding_balance_cents,
+                invoice_id=matching_invoice["id"],
+                trans_id=trans_id,
+            )
+            logger.info(
+                "C2B payment notification sent to vendor",
+                extra={
+                    "vendor_phone": matching_invoice["merchant_msisdn"],
+                    "invoice_id": matching_invoice["id"],
+                    "trans_id": trans_id,
+                },
+            )
+        except Exception as notif_error:
+            logger.error(
+                "Failed to send C2B payment notification",
+                extra={
+                    "error": str(notif_error),
+                    "invoice_id": matching_invoice["id"],
+                    "trans_id": trans_id,
+                },
+                exc_info=True,
+            )
+            # Don't fail the endpoint - notification is best-effort
+
         logger.info(
             "C2B confirmation processed successfully",
             extra={

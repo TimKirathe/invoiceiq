@@ -1585,6 +1585,104 @@ class WhatsAppService:
             )
             return False
 
+    async def send_c2b_payment_notification(
+        self,
+        vendor_phone: str,
+        customer_phone: str,
+        amount_paid: int,  # in cents
+        outstanding_balance: int,  # in cents
+        invoice_id: str,
+        trans_id: str,
+    ) -> bool:
+        """
+        Send C2B payment notification to vendor via WhatsApp.
+
+        Notifies the merchant when a C2B payment is received from a customer,
+        including payment details and balance status.
+
+        Args:
+            vendor_phone: Merchant's phone number (E.164 format without +)
+            customer_phone: Customer's phone number (E.164 format without +)
+            amount_paid: Amount paid in cents (e.g., 10000 = KES 100.00)
+            outstanding_balance: Remaining balance in cents (0 if fully paid)
+            invoice_id: Invoice ID reference
+            trans_id: M-PESA transaction reference
+
+        Returns:
+            True if notification sent successfully, False otherwise
+
+        Example:
+            >>> service = WhatsAppService()
+            >>> success = await service.send_c2b_payment_notification(
+            ...     vendor_phone="254708374149",
+            ...     customer_phone="254712345678",
+            ...     amount_paid=10000,  # KES 100.00
+            ...     outstanding_balance=0,
+            ...     invoice_id="INV-123",
+            ...     trans_id="NLJ7RT61SV"
+            ... )
+        """
+        try:
+            # Format amounts with thousands separators
+            amount_paid_kes = amount_paid / 100
+            outstanding_balance_kes = outstanding_balance / 100
+
+            # Determine balance status message
+            if outstanding_balance == 0:
+                balance_status_message = "✅ Invoice fully paid!"
+            else:
+                balance_status_message = f"Remaining: KES {outstanding_balance_kes:,.2f}"
+
+            # Construct notification message
+            notification_message = (
+                f"💰 Payment Received!\n"
+                f"\n"
+                f"Invoice: {invoice_id}\n"
+                f"Customer: {customer_phone}\n"
+                f"Amount: KES {amount_paid_kes:,.2f}\n"
+                f"M-PESA Ref: {trans_id}\n"
+                f"\n"
+                f"{balance_status_message}"
+            )
+
+            logger.info(
+                "Sending C2B payment notification to vendor",
+                extra={
+                    "vendor_phone": vendor_phone,
+                    "invoice_id": invoice_id,
+                    "amount_paid_cents": amount_paid,
+                    "outstanding_balance_cents": outstanding_balance,
+                    "trans_id": trans_id,
+                },
+            )
+
+            # Send message to vendor
+            await self.send_message(vendor_phone, notification_message)
+
+            logger.info(
+                "C2B payment notification sent successfully",
+                extra={
+                    "vendor_phone": vendor_phone,
+                    "invoice_id": invoice_id,
+                    "trans_id": trans_id,
+                },
+            )
+
+            return True
+
+        except Exception as e:
+            logger.error(
+                "Failed to send C2B payment notification",
+                extra={
+                    "vendor_phone": vendor_phone,
+                    "invoice_id": invoice_id,
+                    "trans_id": trans_id,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            return False
+
     def go_back(self, user_id: str) -> Dict[str, Any]:
         """
         Handle back navigation in invoice creation flow.
