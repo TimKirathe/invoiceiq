@@ -23,6 +23,7 @@ CREATE TABLE invoices (
   mpesa_account_number TEXT,
   mpesa_till_number TEXT,
   mpesa_phone_number TEXT,
+  c2b_notifications_enabled BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -66,6 +67,21 @@ CREATE TABLE merchant_payment_methods (
   is_default BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- c2b_registrations table (added 2025-12-02)
+CREATE TABLE c2b_registrations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  shortcode VARCHAR(20) NOT NULL,
+  shortcode_type VARCHAR(10) NOT NULL,
+  account_number VARCHAR(100),
+  vendor_phone VARCHAR(20) NOT NULL,
+  confirmation_url TEXT NOT NULL,
+  registration_status VARCHAR(20) DEFAULT 'PENDING',
+  daraja_response JSONB,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(shortcode, account_number)
 );
 
 -- Indexes for common queries
