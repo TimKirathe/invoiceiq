@@ -90,7 +90,7 @@ Store `c2b_notifications_enabled` flag when creating the invoice.
 
 ---
 
-## Phase 3: M-PESA C2B Registration Service
+## Phase 3: M-PESA C2B Registration Service ✅ COMPLETED
 
 ### 3.1 Add C2B Registration Method
 
