@@ -527,7 +527,7 @@ def generate_invoice_html(
 
             <div class="invoice-section">
                 <div class="section-label">Due Date</div>
-                <div class="section-value">Due on receipt</div>
+                <div class="section-value">{invoice.get("due_date", "Due on receipt")}</div>
             </div>
 
             <div class="payment-details">
