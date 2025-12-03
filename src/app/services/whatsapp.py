@@ -1464,7 +1464,7 @@ class WhatsAppService:
             async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
                 response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
-                data = await response.json()
+                data = response.json()
 
                 logger.info(
                     "Message sent successfully",
