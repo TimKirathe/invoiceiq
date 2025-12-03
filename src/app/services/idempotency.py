@@ -23,7 +23,6 @@ def generate_idempotency_key() -> str:
         A unique UUID string suitable for use as an idempotency key
     """
     key = str(uuid.uuid4())
-    logger.debug("Generated idempotency key", extra={"key": key})
     return key
 
 
@@ -52,8 +51,6 @@ async def validate_idempotency_key(
                 "status": existing_payment["status"],
             },
         )
-    else:
-        logger.debug("Idempotency key is unique", extra={"key": key})
 
     return existing_payment
 
@@ -94,14 +91,6 @@ async def check_callback_processed(
                 },
             )
             return existing_payment
-        else:
-            logger.debug(
-                "Payment exists but not yet processed",
-                extra={
-                    "checkout_request_id": checkout_request_id,
-                    "payment_id": existing_payment["id"],
-                },
-            )
     else:
         logger.warning(
             "No payment found for CheckoutRequestID",

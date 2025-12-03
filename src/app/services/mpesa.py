@@ -125,12 +125,6 @@ class MPesaService:
         cached_expiry = self._token_cache.get("expires_at", 0)
 
         if cached_token and current_time < cached_expiry:
-            logger.debug(
-                "Using cached M-PESA access token",
-                extra={
-                    "expires_in": int(cached_expiry - current_time),
-                },
-            )
             return cached_token
 
         # Generate new token
@@ -202,11 +196,6 @@ class MPesaService:
         raw_password = f"{shortcode}{passkey}{timestamp}"
         encoded_password = base64.b64encode(raw_password.encode()).decode()
 
-        logger.debug(
-            "Generated STK Push password",
-            extra={"shortcode": shortcode, "timestamp": timestamp},
-        )
-
         return encoded_password
 
     def generate_timestamp(self) -> str:
@@ -217,8 +206,6 @@ class MPesaService:
             Timestamp in YYYYMMDDHHmmss format (e.g., "20250112153045")
         """
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-
-        logger.debug("Generated timestamp", extra={"timestamp": timestamp})
 
         return timestamp
 
@@ -246,11 +233,6 @@ class MPesaService:
 
         # Use Python's standard library XML escaping
         sanitized = xml_escape(text)
-
-        logger.debug(
-            "Sanitized XML text",
-            extra={"original": text, "sanitized": sanitized},
-        )
 
         return sanitized
 

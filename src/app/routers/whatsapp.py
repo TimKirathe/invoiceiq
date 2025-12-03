@@ -167,12 +167,6 @@ async def receive_webhook(
         },
     )
 
-    # Log the full payload for debugging
-    logger.debug(
-        "Full webhook payload",
-        extra={"payload": payload},
-    )
-
     # Initialize WhatsApp service
     whatsapp_service = WhatsAppService()
 

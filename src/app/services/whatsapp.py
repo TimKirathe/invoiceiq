@@ -143,10 +143,6 @@ class ConversationStateManager:
         """
         state_info = cls.get_state(user_id)
         state_info["data"][key] = value
-        logger.debug(
-            "State data updated",
-            extra={"user_id": user_id, "key": key, "value": value},
-        )
 
     @classmethod
     def clear_state(cls, user_id: str) -> None:
@@ -274,95 +270,35 @@ class WhatsAppService:
             Dictionary with 'text', 'from', and 'type' keys, or None if parsing fails
         """
         try:
-            # Log the full payload structure for debugging
-            logger.debug(
-                "Parsing webhook payload",
-                extra={
-                    "payload_object": payload.get("object"),
-                    "has_entry": bool(payload.get("entry")),
-                    "payload_keys": list(payload.keys()) if payload else [],
-                },
-            )
-
             # Navigate the webhook structure: payload['entry'][0]['changes'][0]['value']['messages'][0]
             entry = payload.get("entry", [])
             if not entry:
-                logger.debug(
-                    "No entry field in webhook payload - likely a non-message event"
-                )
                 return None
-
-            # Log entry details
-            logger.debug(
-                "Processing entry",
-                extra={
-                    "entry_count": len(entry),
-                    "entry_id": entry[0].get("id") if entry else None,
-                },
-            )
 
             changes = entry[0].get("changes", [])
             if not changes:
-                logger.debug(
-                    "No changes field in webhook entry - likely a non-message event"
-                )
                 return None
 
-            # Log changes details
             change = changes[0] if changes else {}
             field = change.get("field")
-            logger.debug(
-                "Processing change",
-                extra={"field": field, "changes_count": len(changes)},
-            )
 
             # Check if this is a message event
             if field and field not in ["messages"]:
-                logger.debug(
-                    "Webhook is not a message event",
-                    extra={"field": field, "expected": "messages"},
-                )
                 return None
 
             value = change.get("value", {})
 
-            # Log value structure
-            logger.debug(
-                "Processing value",
-                extra={
-                    "value_keys": list(value.keys()),
-                    "has_messages": "messages" in value,
-                    "has_statuses": "statuses" in value,
-                    "messaging_product": value.get("messaging_product"),
-                },
-            )
-
             # Handle status updates (delivery/read receipts) - these don't have messages
             if "statuses" in value and "messages" not in value:
-                logger.debug("Webhook contains status update, not a message")
                 return None
 
             messages = value.get("messages", [])
             if not messages:
-                logger.debug(
-                    "No messages in webhook payload - might be a status update or other event",
-                    extra={"value_keys": list(value.keys())},
-                )
                 return None
 
             message = messages[0]
             message_type = message.get("type")
             sender = message.get("from")
-
-            logger.debug(
-                "Processing message",
-                extra={
-                    "message_type": message_type,
-                    "sender": sender,
-                    "message_id": message.get("id"),
-                    "message_keys": list(message.keys()),
-                },
-            )
 
             if not sender:
                 logger.warning(
@@ -401,9 +337,6 @@ class WhatsAppService:
                 from ..utils.phone import validate_msisdn
 
                 validate_msisdn(normalized_sender)
-                logger.debug(
-                    f"Phone number validated successfully: {normalized_sender}"
-                )
             except ValueError as e:
                 # Log the validation error but don't fail - let the message through
                 logger.warning(
@@ -422,9 +355,6 @@ class WhatsAppService:
             if message_type == "text":
                 text_obj = message.get("text", {})
                 text = text_obj.get("body")
-                logger.debug(
-                    f"Extracted text message: {text[:50] if text else 'None'}..."
-                )
             elif message_type == "interactive":
                 # Handle button clicks
                 interactive = message.get("interactive", {})
@@ -442,19 +372,16 @@ class WhatsAppService:
                         )
                     else:
                         text = button_id or button_reply.get("title")
-                    logger.debug(f"Extracted button reply: {text}")
                 elif interactive_type == "list_reply":
                     list_reply = interactive.get("list_reply", {})
                     text = list_reply.get("id") or list_reply.get("title")
-                    logger.debug(f"Extracted list reply: {text}")
                 else:
-                    logger.debug(f"Unknown interactive type: {interactive_type}")
+                    pass  # Unknown interactive type
 
             elif message_type == "button":
                 # Handle quick reply buttons (different from interactive buttons)
                 button = message.get("button", {})
                 text = button.get("payload") or button.get("text")
-                logger.debug(f"Extracted button text: {text}")
             else:
                 logger.info(
                     "Message type not supported for text extraction",
@@ -1743,15 +1670,6 @@ class WhatsAppService:
         data_to_clear = self._get_data_keys_for_state(current_state)
         for key in data_to_clear:
             data.pop(key, None)
-
-        logger.debug(
-            "Cleared data for current state",
-            extra={
-                "user_id": user_id,
-                "current_state": current_state,
-                "keys_cleared": data_to_clear,
-            },
-        )
 
         # Set previous state
         self.state_manager.set_state(user_id, previous_state, data)

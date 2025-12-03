@@ -49,12 +49,6 @@ def receive_inbound_sms(
         },
     )
 
-    # Log the full payload for debugging
-    logger.debug(
-        "Full inbound SMS payload",
-        extra={"payload": payload},
-    )
-
     # Initialize SMS service
     sms_service = SMSService()
 
@@ -204,12 +198,6 @@ def receive_delivery_status(
         extra={
             "payload_keys": list(payload.keys()),
         },
-    )
-
-    # Log the full payload for debugging
-    logger.debug(
-        "Full delivery receipt payload",
-        extra={"payload": payload},
     )
 
     # Initialize SMS service

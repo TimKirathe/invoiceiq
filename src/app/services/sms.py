@@ -221,15 +221,6 @@ class SMSService:
             f"Reply PAY to complete payment. -InvoiceIQ"
         )
 
-        logger.debug(
-            "Invoice SMS formatted",
-            extra={
-                "invoice_id": invoice["id"],
-                "message_length": len(message),
-                "amount_kes": amount_kes,
-            },
-        )
-
         return message
 
     async def send_invoice_to_customer(

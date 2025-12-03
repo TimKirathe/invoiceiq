@@ -38,10 +38,6 @@ def generate_invoice_id() -> str:
     timestamp = int(time.time())
     random_num = random.randint(1000, 9999)
     invoice_id = f"INV-{timestamp}-{random_num}"
-    logger.debug(
-        "Invoice ID generated",
-        extra={"invoice_id": invoice_id, "timestamp": timestamp, "random": random_num},
-    )
     return invoice_id
 
 

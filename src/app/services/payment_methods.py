@@ -155,13 +155,6 @@ def get_payment_methods(merchant_msisdn: str, supabase: Client) -> List[Dict]:
             .order("created_at", desc=True)
             .execute()
         )
-        logger.debug(
-            "Retrieved payment methods",
-            extra={
-                "merchant_msisdn": merchant_msisdn,
-                "count": len(response.data)
-            }
-        )
         return response.data
     except Exception as e:
         logger.error(
@@ -211,21 +204,6 @@ def get_default_payment_method(
         )
 
         default_method = response.data[0] if response.data else None
-
-        if default_method:
-            logger.debug(
-                "Retrieved default payment method",
-                extra={
-                    "merchant_msisdn": merchant_msisdn,
-                    "method_id": default_method["id"],
-                    "method_type": default_method["method_type"]
-                }
-            )
-        else:
-            logger.debug(
-                "No default payment method found",
-                extra={"merchant_msisdn": merchant_msisdn}
-            )
 
         return default_method
     except Exception as e:

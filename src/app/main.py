@@ -5,6 +5,7 @@ This module initializes the FastAPI application, configures middleware,
 sets up health check endpoints, and registers API routers.
 """
 
+import os
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -28,7 +29,12 @@ from .services.metrics import (
 from .utils.logging import get_logger, setup_logging
 
 # Set up structured logging
-setup_logging(level="DEBUG" if settings.debug else "INFO")
+# Get log level from environment, default to INFO
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+# Override to DEBUG only if settings.debug is True
+if settings.debug:
+    log_level = "DEBUG"
+setup_logging(level=log_level)
 logger = get_logger(__name__)
 
 # Initialize rate limiter
@@ -129,16 +135,18 @@ async def log_requests(request: Request, call_next) -> Response:
     start_time = time.time()
     correlation_id = getattr(request.state, "correlation_id", None)
 
-    # Log incoming request
-    logger.info(
-        f"Incoming request: {request.method} {request.url.path}",
-        extra={
-            "method": request.method,
-            "path": request.url.path,
-            "query_params": str(request.query_params),
-            "correlation_id": correlation_id,
-        },
-    )
+    # Skip logging health check endpoints
+    if request.url.path not in ["/healthz", "/readyz"]:
+        # Log incoming request
+        logger.info(
+            f"Incoming request: {request.method} {request.url.path}",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "query_params": str(request.query_params),
+                "correlation_id": correlation_id,
+            },
+        )
 
     # Process request
     response = await call_next(request)
@@ -146,17 +154,19 @@ async def log_requests(request: Request, call_next) -> Response:
     # Calculate processing time
     process_time = time.time() - start_time
 
-    # Log response
-    logger.info(
-        f"Request completed: {request.method} {request.url.path}",
-        extra={
-            "method": request.method,
-            "path": request.url.path,
-            "status_code": response.status_code,
-            "process_time": f"{process_time:.4f}s",
-            "correlation_id": correlation_id,
-        },
-    )
+    # Skip logging health check endpoints
+    if request.url.path not in ["/healthz", "/readyz"]:
+        # Log response
+        logger.info(
+            f"Request completed: {request.method} {request.url.path}",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "process_time": f"{process_time:.4f}s",
+                "correlation_id": correlation_id,
+            },
+        )
 
     # Add processing time header
     response.headers["X-Process-Time"] = str(process_time)
@@ -241,7 +251,6 @@ async def readiness_check(supabase=Depends(get_supabase)) -> dict[str, str]:
     try:
         # Test Supabase connection with a simple query
         _ = supabase.table("invoices").select("id").limit(1).execute()
-        logger.info("Readiness check passed - Supabase connected")
         return {"status": "ready", "database": "connected"}
     except Exception as e:
         logger.error(

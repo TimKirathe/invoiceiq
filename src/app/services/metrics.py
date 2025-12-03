@@ -37,8 +37,6 @@ async def get_invoice_stats(supabase: Client) -> dict[str, int]:
             "cancelled": int
         }
     """
-    logger.debug("Calculating invoice statistics")
-
     try:
         # Query total count
         total_response = supabase.table("invoices").select("id", count="exact").execute()
@@ -98,8 +96,6 @@ async def get_conversion_rate(supabase: Client) -> float:
     Returns:
         Conversion rate as a percentage (0.0 to 100.0)
     """
-    logger.debug("Calculating conversion rate")
-
     try:
         # Count sent invoices (includes SENT, PAID, FAILED statuses)
         sent_response = (
@@ -162,8 +158,6 @@ async def get_average_payment_time(supabase: Client) -> Optional[float]:
     Returns:
         Average payment time in seconds, or None if no paid invoices exist
     """
-    logger.debug("Calculating average payment time")
-
     try:
         # Query paid invoices with their successful payments
         # We join invoices and payments where status is PAID and payment status is SUCCESS
