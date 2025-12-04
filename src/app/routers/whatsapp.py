@@ -17,7 +17,6 @@ from pydantic import BaseModel, ConfigDict
 
 from ..config import settings
 from ..db import get_supabase
-from ..schemas import InvoiceCreate
 from ..services.mpesa import MPesaService
 from ..services.whatsapp import WhatsAppService
 from ..utils.logging import get_logger
@@ -586,143 +585,10 @@ async def receive_webhook(
                 response_text = (
                     "📋 InvoiceIQ Bot Commands:\n\n"
                     "📝 invoice - Start guided invoice creation\n"
-                    "⚡ invoice <phone> <amount> <desc> - Quick invoice\n"
                     "🔔 remind <invoice_id> - Send reminder\n"
                     "❌ cancel <invoice_id> - Cancel invoice\n"
                     "❓ help - Show this help"
                 )
-
-            elif command == "invoice":
-                # One-line invoice command: invoice <phone> <amount> <description>
-                logger.info(
-                    "One-line invoice command received",
-                    extra={"params": params, "sender": sender},
-                )
-
-                # Check if parser returned an error (Task 1.3)
-                if "error" in params:
-                    response_text = params["error"]
-                    logger.warning(
-                        "One-line invoice validation error",
-                        extra={"error": params["error"], "sender": sender},
-                    )
-                else:
-                    # Task 1.1: Implement invoice creation
-                    # Validate that we have phone (not name)
-                    if "name" in params:
-                        # This should not happen due to Task 1.2, but defensive check
-                        response_text = (
-                            "For quick invoice, please use phone number format:\n"
-                            "invoice 2547XXXXXXXX <amount> <description>"
-                        )
-                    elif "phone" not in params:
-                        response_text = (
-                            "Invalid invoice format. Use:\n"
-                            "invoice <phone> <amount> <description>\n"
-                            "Example: invoice 254712345678 1000 Web design services"
-                        )
-                    else:
-                        # Extract parameters
-                        customer_msisdn = params["phone"]
-                        amount = params.get("amount")
-
-                        # Validate amount
-                        if not amount or amount < 1:
-                            response_text = "Amount must be at least 1 KES"
-                        else:
-                            # Create invoice
-                            try:
-                                invoice_create = InvoiceCreate(
-                                    msisdn=customer_msisdn,
-                                    customer_name=None,  # Not provided in one-line command
-                                    merchant_msisdn=sender,
-                                    amount_cents=amount * 100,  # Convert to cents
-                                )
-
-                                # Generate invoice ID
-                                timestamp = int(time.time())
-                                random_num = random.randint(1000, 9999)
-                                invoice_id = f"INV-{timestamp}-{random_num}"
-
-                                # Calculate VAT (16% of total amount)
-                                # Total amount includes VAT, so VAT = (amount_cents * 16) / 116
-                                vat_amount = int((invoice_create.amount_cents * 16) / 116)
-
-                                # Create invoice record
-                                invoice_data = {
-                                    "id": invoice_id,
-                                    "customer_name": invoice_create.customer_name,
-                                    "msisdn": invoice_create.msisdn,
-                                    "merchant_msisdn": invoice_create.merchant_msisdn,
-                                    "amount_cents": invoice_create.amount_cents,
-                                    "vat_amount": vat_amount,
-                                    "currency": "KES",
-                                    "status": "PENDING",
-                                    "pay_ref": None,
-                                    "pay_link": None,
-                                }
-
-                                invoice_response = supabase.table("invoices").insert(invoice_data).execute()
-                                invoice = invoice_response.data[0]
-
-                                logger.info(
-                                    "Invoice created from one-line command",
-                                    extra={"invoice_id": invoice["id"], "merchant_msisdn": sender},
-                                )
-
-                                # Send invoice to customer
-                                send_success = await whatsapp_service.send_invoice_to_customer(
-                                    invoice_id=invoice["id"],
-                                    customer_msisdn=invoice["msisdn"],
-                                    customer_name=invoice.get("customer_name"),
-                                    amount_cents=invoice["amount_cents"],
-                                    db_session=supabase,
-                                )
-
-                                # Update invoice status
-                                if send_success:
-                                    supabase.table("invoices").update({"status": "SENT"}).eq("id", invoice["id"]).execute()
-                                    invoice["status"] = "SENT"
-
-                                    # Send merchant confirmation
-                                    await whatsapp_service.send_merchant_confirmation(
-                                        merchant_msisdn=sender,
-                                        invoice_id=invoice["id"],
-                                        customer_msisdn=invoice["msisdn"],
-                                        amount_cents=invoice["amount_cents"],
-                                        status=invoice["status"],
-                                    )
-
-                                    # Override response text (confirmation already sent)
-                                    response_text = None
-                                else:
-                                    logger.warning(
-                                        "Invoice created but failed to send (one-line command)",
-                                        extra={"invoice_id": invoice["id"]},
-                                    )
-                                    response_text = (
-                                        f"Invoice {invoice['id']} created but failed to send to customer. "
-                                        f"Status: PENDING. You can try again later."
-                                    )
-
-                            except ValueError as ve:
-                                # Validation error
-                                logger.warning(
-                                    "Validation error in one-line invoice",
-                                    extra={"error": str(ve), "sender": sender},
-                                )
-                                response_text = f"Invalid invoice data: {str(ve)}"
-
-                            except Exception as e:
-                                logger.error(
-                                    "Failed to create invoice from one-line command",
-                                    extra={"error": str(e), "merchant_msisdn": sender},
-                                    exc_info=True,
-                                )
-                                response_text = (
-                                    "Failed to create invoice. Please try again or use the guided flow "
-                                    "(send 'invoice' without parameters)."
-                                )
 
             elif command == "remind":
                 # Remind command (will be implemented later)

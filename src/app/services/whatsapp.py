@@ -442,7 +442,6 @@ class WhatsAppService:
         Parse a message text to recognize commands and extract parameters.
 
         Supported commands:
-        - invoice <phone_or_name> <amount> <desc...>: One-line invoice creation
         - remind <invoice_id>: Send reminder
         - cancel <invoice_id>: Cancel invoice
         - help: Show help
@@ -481,61 +480,6 @@ class WhatsAppService:
                 "command": "cancel",
                 "params": {"invoice_id": match.group(1).strip()},
             }
-
-        # One-line invoice command: invoice <phone_or_name> <amount> <desc...>
-        # This regex matches: invoice followed by either a phone number or name, then amount, then description
-        invoice_pattern = r"^invoice\s+(\S+(?:\s+\S+)*?)\s+(\d+)\s+(.{3,})$"
-        match = re.match(invoice_pattern, message_text.strip(), re.IGNORECASE)
-        if match:
-            phone_or_name = match.group(1).strip()
-            amount_str = match.group(2).strip()
-            description = match.group(3).strip()
-
-            # Validate amount is numeric and positive
-            try:
-                amount = int(amount_str)
-                if amount < 1:
-                    return {
-                        "command": "invoice",
-                        "params": {"error": "Amount must be at least 1 KES"},
-                    }
-            except ValueError:
-                return {
-                    "command": "invoice",
-                    "params": {"error": "Amount must be a number"},
-                }
-
-            # Validate description length
-            if len(description) < 3:
-                return {
-                    "command": "invoice",
-                    "params": {"error": "Description must be at least 3 characters"},
-                }
-            if len(description) > 120:
-                return {
-                    "command": "invoice",
-                    "params": {"error": "Description must not exceed 120 characters"},
-                }
-
-            # Check if it's a phone number (starts with 254 and is numeric)
-            if re.match(r"^2547\d{8}$", phone_or_name):
-                # It's a phone number
-                return {
-                    "command": "invoice",
-                    "params": {
-                        "phone": phone_or_name,
-                        "amount": amount,
-                        "description": description,
-                    },
-                }
-            else:
-                # It's a name - return error for MVP (name lookup not implemented)
-                return {
-                    "command": "invoice",
-                    "params": {
-                        "error": "For quick invoice, please use phone number format: invoice 2547XXXXXXXX <amount> <description>",
-                    },
-                }
 
         # Unknown command
         return {"command": "unknown", "params": {}}
@@ -2051,7 +1995,8 @@ class WhatsAppService:
         """
         Send an invoice to a customer via WhatsApp.
 
-        Uses WhatsApp template for new guided flow invoices, or interactive button for legacy one-line invoices.
+        Uses WhatsApp template for guided flow invoices with full invoice details,
+        or simple interactive button for invoices without full details.
         Creates a MessageLog entry for the outbound message.
 
         Args:
@@ -2060,7 +2005,7 @@ class WhatsAppService:
             customer_name: Customer's name (optional)
             amount_cents: Invoice amount in cents
             db_session: Database session for logging
-            invoice: Full invoice object (new flow with all fields)
+            invoice: Full invoice object (guided flow with all fields)
 
         Returns:
             True if message sent successfully, False otherwise

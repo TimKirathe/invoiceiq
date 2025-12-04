@@ -146,7 +146,7 @@ alembic downgrade -1
    - Receives messages and button clicks from merchants and customers
    - Implements state machine for guided invoice creation flow
    - Validates inputs (phone, amount, description) inline
-   - Supports both one-line commands and step-by-step prompts
+   - Supports step-by-step prompts for invoice creation
 
 2. **Invoice Service** (`POST /invoices`)
    - Creates invoices with status tracking (PENDING → SENT → PAID/FAILED/CANCELLED)
@@ -187,16 +187,14 @@ Refer to `outline.md` section 5 for complete schema.
 
 ### Bot Commands
 
-**One-line format:**
-
 ```
-invoice <phone_or_name> <amount> <desc...>
-remind <invoice_id>
-cancel <invoice_id>
-help
+invoice / new invoice - Start guided invoice creation flow
+remind <invoice_id> - Send payment reminder
+cancel <invoice_id> - Cancel invoice
+help - Show available commands
 ```
 
-**Guided flow:** Triggered by `invoice` or `new invoice` without parameters.
+**Guided flow:** Triggered by `invoice` or `new invoice`.
 
 ### Validation Rules
 
@@ -278,7 +276,7 @@ DATABASE_URL=            # Database connection string
 
 ### Unit Tests
 
-- Parser logic for one-line commands
+- Command parser logic (help, remind, cancel, guided flow)
 - Validator functions (phone, amount, description)
 - Idempotency key handling
 - State machine transitions

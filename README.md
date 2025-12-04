@@ -201,26 +201,24 @@ For interactive API documentation, visit `/docs` when running the application.
 
 ## Bot Commands
 
-### One-line Format
-
 ```
-invoice <phone_or_name> <amount> <description>
-remind <invoice_id>
-cancel <invoice_id>
-help
+invoice / new invoice - Start guided invoice creation flow
+remind <invoice_id> - Send payment reminder
+cancel <invoice_id> - Cancel invoice
+help - Show available commands
 ```
 
 ### Guided Flow
 
-Send `invoice` or `new invoice` to start an interactive invoice creation flow.
+Send `invoice` or `new invoice` to start an interactive invoice creation flow that will guide you through entering all invoice details step-by-step.
 
 ### Examples
 
 ```
-invoice John 500 Website design consultation
-invoice 254712345678 1200 Monthly subscription
-remind INV-12345
-cancel INV-67890
+invoice               # Start guided flow
+remind INV-12345     # Send payment reminder
+cancel INV-67890     # Cancel invoice
+help                 # Show commands
 ```
 
 ## Testing

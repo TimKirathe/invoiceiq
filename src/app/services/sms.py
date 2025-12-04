@@ -368,36 +368,6 @@ class SMSService:
         if match:
             return {"command": "cancel", "params": {"invoice_id": match.group(1).strip()}}
 
-        # One-line invoice command: invoice <phone_or_name> <amount> <desc...>
-        invoice_pattern = r"^invoice\s+(\S+(?:\s+\S+)*?)\s+(\d+)\s+(.{3,})$"
-        match = re.match(invoice_pattern, text, re.IGNORECASE)
-        if match:
-            phone_or_name = match.group(1).strip()
-            amount_str = match.group(2).strip()
-            description = match.group(3).strip()
-
-            # Check if it's a phone number (starts with 254 and is numeric)
-            if re.match(r"^2547\d{8}$", phone_or_name):
-                # It's a phone number
-                return {
-                    "command": "invoice",
-                    "params": {
-                        "phone": phone_or_name,
-                        "amount": int(amount_str),
-                        "description": description,
-                    },
-                }
-            else:
-                # It's a name
-                return {
-                    "command": "invoice",
-                    "params": {
-                        "name": phone_or_name,
-                        "amount": int(amount_str),
-                        "description": description,
-                    },
-                }
-
         # Unknown command
         logger.info(
             "Unknown SMS command received",

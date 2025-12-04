@@ -202,45 +202,6 @@ class TestCommandParser:
         assert result["command"] == "start_guided"
         assert result["params"] == {}
 
-    def test_one_line_invoice_with_phone(self):
-        """Test parsing one-line invoice command with phone number."""
-        service = WhatsAppService()
-        result = service.parse_command("invoice 254712345678 500 Website design")
-        assert result["command"] == "invoice"
-        assert result["params"]["phone"] == "254712345678"
-        assert result["params"]["amount"] == 500
-        assert result["params"]["description"] == "Website design"
-
-    def test_one_line_invoice_with_name(self):
-        """Test parsing one-line invoice command with customer name."""
-        service = WhatsAppService()
-        result = service.parse_command("invoice John Doe 1000 Consultation fee")
-        assert result["command"] == "invoice"
-        assert result["params"]["name"] == "John Doe"
-        assert result["params"]["amount"] == 1000
-        assert result["params"]["description"] == "Consultation fee"
-
-    def test_one_line_invoice_with_long_description(self):
-        """Test parsing one-line invoice command with multi-word description."""
-        service = WhatsAppService()
-        result = service.parse_command(
-            "invoice 254712345678 2500 Professional web development services for e-commerce site"
-        )
-        assert result["command"] == "invoice"
-        assert result["params"]["phone"] == "254712345678"
-        assert result["params"]["amount"] == 2500
-        assert (
-            result["params"]["description"]
-            == "Professional web development services for e-commerce site"
-        )
-
-    def test_one_line_invoice_case_insensitive(self):
-        """Test that invoice command is case-insensitive."""
-        service = WhatsAppService()
-        result = service.parse_command("INVOICE 254712345678 500 Test")
-        assert result["command"] == "invoice"
-        assert result["params"]["phone"] == "254712345678"
-
     def test_remind_command(self):
         """Test parsing remind command."""
         service = WhatsAppService()
@@ -276,39 +237,3 @@ class TestCommandParser:
         # Leading/trailing whitespace
         result = service.parse_command("  help  ")
         assert result["command"] == "help"
-
-        # Multiple spaces in command
-        result = service.parse_command("invoice  254712345678  500  Test")
-        assert result["command"] == "invoice"
-        assert result["params"]["phone"] == "254712345678"
-        assert result["params"]["amount"] == 500
-
-    def test_special_characters_in_description(self):
-        """Test handling special characters in description."""
-        service = WhatsAppService()
-        result = service.parse_command("invoice 254712345678 500 Website design & development!")
-        assert result["command"] == "invoice"
-        assert result["params"]["description"] == "Website design & development!"
-
-    def test_invoice_short_description(self):
-        """Test invoice command with minimum length description (3 chars)."""
-        service = WhatsAppService()
-        result = service.parse_command("invoice 254712345678 500 ABC")
-        assert result["command"] == "invoice"
-        assert result["params"]["description"] == "ABC"
-
-    def test_invoice_too_short_description(self):
-        """Test invoice command with too short description (< 3 chars)."""
-        service = WhatsAppService()
-        result = service.parse_command("invoice 254712345678 500 AB")
-        # Should not match because description is too short
-        assert result["command"] == "unknown"
-
-    def test_invoice_with_name_containing_spaces(self):
-        """Test invoice with multi-word customer name."""
-        service = WhatsAppService()
-        result = service.parse_command("invoice Mary Jane Watson 750 Photography session")
-        assert result["command"] == "invoice"
-        assert result["params"]["name"] == "Mary Jane Watson"
-        assert result["params"]["amount"] == 750
-        assert result["params"]["description"] == "Photography session"
