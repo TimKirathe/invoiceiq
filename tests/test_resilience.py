@@ -11,93 +11,8 @@ import pybreaker
 from unittest.mock import AsyncMock, Mock, patch
 from slowapi.errors import RateLimitExceeded
 
-from src.app.services.sms import SMSService
 from src.app.services.mpesa import MPesaService, mpesa_circuit_breaker
 from src.app.services.whatsapp import WhatsAppService, get_user_friendly_error_message
-
-
-class TestSMSRetryLogic:
-    """Test retry logic for SMS service."""
-
-    @pytest.mark.asyncio
-    async def test_sms_retries_on_timeout(self):
-        """Test that SMS service retries on timeout errors."""
-        sms_service = SMSService()
-
-        # Mock httpx.AsyncClient to raise timeout twice, then succeed
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {"status": "sent"}
-
-            call_count = 0
-
-            async def mock_post(*args, **kwargs):
-                nonlocal call_count
-                call_count += 1
-                if call_count < 3:
-                    raise httpx.TimeoutException("Request timed out")
-                mock_response.raise_for_status = Mock()
-                return mock_response
-
-            mock_client.return_value.__aenter__.return_value.post = mock_post
-
-            # Should succeed on 3rd attempt
-            result = await sms_service.send_sms(
-                to="254712345678",
-                message="Test message"
-            )
-
-            assert result["status"] == "success"
-            assert call_count == 3
-
-    @pytest.mark.asyncio
-    async def test_sms_retries_on_network_error(self):
-        """Test that SMS service retries on network errors."""
-        sms_service = SMSService()
-
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {"status": "sent"}
-
-            call_count = 0
-
-            async def mock_post(*args, **kwargs):
-                nonlocal call_count
-                call_count += 1
-                if call_count < 3:
-                    raise httpx.RequestError("Network error")
-                mock_response.raise_for_status = Mock()
-                return mock_response
-
-            mock_client.return_value.__aenter__.return_value.post = mock_post
-
-            result = await sms_service.send_sms(
-                to="254712345678",
-                message="Test message"
-            )
-
-            assert result["status"] == "success"
-            assert call_count == 3
-
-    @pytest.mark.asyncio
-    async def test_sms_fails_after_max_retries(self):
-        """Test that SMS service fails after max retry attempts."""
-        sms_service = SMSService()
-
-        with patch("httpx.AsyncClient") as mock_client:
-            async def mock_post(*args, **kwargs):
-                raise httpx.TimeoutException("Request timed out")
-
-            mock_client.return_value.__aenter__.return_value.post = mock_post
-
-            # Should fail after 3 attempts
-            with pytest.raises(Exception, match="timed out"):
-                await sms_service.send_sms(
-                    to="254712345678",
-                    message="Test message"
-                )
 
 
 class TestMPesaRetryLogic:
@@ -413,46 +328,6 @@ class TestWebhookSignatureValidation:
         # Should always return True for MVP
         result = validate_webhook_signature({"test": "payload"}, "signature_123")
         assert result is True
-
-
-class TestEndToEndResilience:
-    """Test end-to-end resilience scenarios."""
-
-    @pytest.mark.asyncio
-    async def test_sms_fallback_on_whatsapp_failure(self):
-        """Test that SMS fallback is triggered when WhatsApp fails."""
-        whatsapp_service = WhatsAppService()
-
-        # Mock both WhatsApp and SMS
-        with patch("httpx.AsyncClient") as mock_whatsapp_client:
-            async def mock_whatsapp_post(*args, **kwargs):
-                raise httpx.RequestError("Network error")
-
-            mock_whatsapp_client.return_value.__aenter__.return_value.post = (
-                mock_whatsapp_post
-            )
-
-            # Mock SMS service
-            with patch("src.app.services.whatsapp.SMSService") as mock_sms_service:
-                mock_sms_instance = Mock()
-                mock_sms_instance.send_invoice_to_customer = AsyncMock(return_value=True)
-                mock_sms_service.return_value = mock_sms_instance
-
-                # Mock database session
-                mock_db = AsyncMock()
-
-                # Should attempt SMS fallback
-                await whatsapp_service.send_invoice_to_customer(
-                    invoice_id="INV-123",
-                    customer_msisdn="254712345678",
-                    customer_name="Test Customer",
-                    amount_cents=10000,
-                    description="Test invoice",
-                    db_session=mock_db
-                )
-
-                # SMS fallback should have been called
-                mock_sms_instance.send_invoice_to_customer.assert_called_once()
 
 
 if __name__ == "__main__":

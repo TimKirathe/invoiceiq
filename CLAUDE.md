@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**InvoiceIQ** is a WhatsApp-first invoicing system that enables merchants to create and send invoices via WhatsApp (with SMS fallback) and receive payments through M-PESA STK Push. This is a minimal MVP focused on core invoice-to-payment flow.
+**InvoiceIQ** is a WhatsApp-first invoicing system that enables merchants to create and send invoices via WhatsApp and receive payments through M-PESA STK Push. This is a minimal MVP focused on core invoice-to-payment flow.
 
 ## Tech Stack
 
 - **Backend:** FastAPI (Python)
 - **Database:** Supabase/Postgres
-- **Messaging:** WhatsApp Business API (via 360 Dialog), SMS fallback (Africa's Talking)
+- **Messaging:** WhatsApp Business API (via 360 Dialog)
 - **Payments:** M-PESA STK Push
 - **Deployment:** Single container (uvicorn) + reverse proxy or serverless
 
@@ -128,13 +128,11 @@ alembic downgrade -1
 ├─ services/
 │ ├─ init.py
 │ ├─ whatsapp.py
-│ ├─ sms.py
 │ ├─ mpesa.py
 │ └─ idempotency.py
 └─ routers/
 ├─ init.py
 ├─ whatsapp.py
-├─ sms.py
 ├─ invoices.py
 └─ payments.py
 
@@ -150,17 +148,13 @@ alembic downgrade -1
 
 2. **Invoice Service** (`POST /invoices`)
    - Creates invoices with status tracking (PENDING → SENT → PAID/FAILED/CANCELLED)
-   - Sends invoice to customer via WhatsApp (preferred) or SMS (fallback)
+   - Sends invoice to customer via WhatsApp
    - Handles merchant confirmations and follow-up actions
 
 3. **Payment Service** (`/payments/stk/*`)
    - Initiates M-PESA STK Push requests
    - Handles payment callbacks with idempotency
    - Updates invoice status and sends receipts to both parties
-
-4. **SMS Fallback Handler** (`/sms/*`)
-   - Handles inbound SMS and delivery receipts
-   - Used when WhatsApp delivery fails or customer lacks WhatsApp
 
 ### State Machine (Chat Flow)
 
@@ -181,7 +175,7 @@ Three core tables:
 
 1. **invoices** - Invoice records with status, customer info, amount
 2. **payments** - Payment transactions with M-PESA details, idempotency keys
-3. **message_log** - Audit trail for all WhatsApp/SMS messages (IN/OUT)
+3. **message_log** - Audit trail for all WhatsApp messages (IN/OUT)
 
 Refer to `outline.md` section 5 for complete schema.
 
@@ -208,16 +202,15 @@ help - Show available commands
 Required secrets (see `outline.md` section 11):
 
 ```
-WABA_TOKEN=              # WhatsApp Business API token
-WABA_PHONE_ID=           # WhatsApp phone number ID
-WABA_VERIFY_TOKEN=       # Webhook verification token
-SMS_API_KEY=             # SMS provider API key
+D360_API_KEY=            # 360 Dialog API key
+WEBHOOK_VERIFY_TOKEN=    # Webhook verification token
 MPESA_CONSUMER_KEY=      # M-PESA app consumer key
 MPESA_CONSUMER_SECRET=   # M-PESA app consumer secret
 MPESA_SHORTCODE=         # M-PESA business shortcode
 MPESA_PASSKEY=           # M-PESA passkey
 MPESA_CALLBACK_URL=      # STK callback URL (https://<host>/payments/stk/callback)
-DATABASE_URL=            # Database connection string
+SUPABASE_URL=            # Supabase project URL
+SUPABASE_SECRET_KEY=     # Supabase secret key
 ```
 
 ## API Endpoints
@@ -226,11 +219,6 @@ DATABASE_URL=            # Database connection string
 
 - `GET /whatsapp/webhook` - Verify webhook token
 - `POST /whatsapp/webhook` - Receive messages & button clicks
-
-### SMS Webhooks
-
-- `POST /sms/inbound` - Inbound SMS
-- `POST /sms/status` - Delivery receipts
 
 ### Internal APIs
 
@@ -255,7 +243,6 @@ DATABASE_URL=            # Database connection string
 
 - Strict MSISDN validation to prevent delivery failures
 - Structured logging for all message and payment events
-- SMS fallback when WhatsApp delivery fails
 - Retry logic for transient failures
 
 ### Security
@@ -284,7 +271,6 @@ DATABASE_URL=            # Database connection string
 ### Integration Tests
 
 - Full flow: WhatsApp inbound → invoice creation → STK initiate → callback → receipt
-- SMS fallback trigger and delivery
 - Payment callback handling with various statuses
 
 ### Edge Cases
@@ -307,7 +293,7 @@ DATABASE_URL=            # Database connection string
 
 ### Logging
 
-- Log all WhatsApp/SMS messages to `message_log` table
+- Log all WhatsApp messages to `message_log` table
 - Log all payment events with full request/callback payloads
 - Use structured logging (JSON) for easy parsing
 
@@ -317,7 +303,6 @@ DATABASE_URL=            # Database connection string
 
 - WhatsApp bot for invoice creation/delivery
 - Customer payment via STK Push
-- SMS fallback for non-WhatsApp users
 - Basic persistence and audit logging
 - Single merchant/admin user
 

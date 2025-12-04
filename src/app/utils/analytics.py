@@ -41,10 +41,9 @@ async def get_delivery_rates(db: Client, days: int = 7) -> Dict[str, Any]:
         {
             "period_days": 7,
             "channels": {
-                "WHATSAPP": {"sent": 100, "failed": 5, "rate": 0.95},
-                "SMS": {"sent": 20, "failed": 1, "rate": 0.95}
+                "WHATSAPP": {"sent": 100, "failed": 5, "rate": 0.95}
             },
-            "overall": {"sent": 120, "failed": 6, "rate": 0.95}
+            "overall": {"sent": 100, "failed": 5, "rate": 0.95}
         }
     """
     logger.warning("get_delivery_rates is not yet implemented for Supabase")
@@ -64,7 +63,7 @@ async def get_delivery_rates(db: Client, days: int = 7) -> Dict[str, Any]:
 
 async def get_channel_distribution(db: Client, days: int = 7) -> Dict[str, Any]:
     """
-    Get distribution of messages by channel (WhatsApp vs SMS).
+    Get distribution of messages by channel.
 
     Args:
         db: Supabase client
@@ -75,10 +74,9 @@ async def get_channel_distribution(db: Client, days: int = 7) -> Dict[str, Any]:
         {
             "period_days": 7,
             "distribution": {
-                "WHATSAPP": {"count": 100, "percentage": 0.83},
-                "SMS": {"count": 20, "percentage": 0.17}
+                "WHATSAPP": {"count": 100, "percentage": 1.0}
             },
-            "total": 120
+            "total": 100
         }
     """
     logger.warning("get_channel_distribution is not yet implemented for Supabase")
@@ -115,7 +113,6 @@ async def get_performance_metrics(db: Client, days: int = 7) -> Dict[str, Any]:
         "events": {},
         "directions": {},
         "channels": {},
-        "sms_fallback_triggered": 0,
         "total_messages": 0
     }
 

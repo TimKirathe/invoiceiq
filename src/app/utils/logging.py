@@ -138,7 +138,7 @@ def log_api_call(
     Log API calls with metadata only (no request/response bodies with PII).
 
     Args:
-        service: API service name (e.g., "whatsapp", "sms", "mpesa")
+        service: API service name (e.g., "whatsapp", "mpesa")
         endpoint: API endpoint path
         method: HTTP method (GET, POST, etc.)
         status_code: HTTP response status code
@@ -215,7 +215,6 @@ def log_event(
         "full_name",
         "message",
         "message_text",
-        "sms_text",
         "body",
         "email",
         "address",

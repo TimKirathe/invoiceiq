@@ -23,12 +23,6 @@ class Settings(BaseSettings):
     d360_webhook_base_url: str = "https://waba-v2.360dialog.io"
     webhook_verify_token: str  # Standard WhatsApp webhook verification token
 
-    # SMS Provider Configuration (Africa's Talking)
-    sms_api_key: str
-    sms_username: str
-    sms_sender_id: str | None = None  # Optional sender ID/shortcode
-    sms_use_sandbox: bool = True  # Default to sandbox
-
     # M-PESA Configuration
     mpesa_consumer_key: str
     mpesa_consumer_secret: str

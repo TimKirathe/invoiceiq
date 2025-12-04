@@ -2,13 +2,12 @@
 
 > WhatsApp-first invoicing system with M-PESA payment integration
 
-InvoiceIQ is a minimal MVP that enables merchants to create and send invoices via WhatsApp (with SMS fallback) and receive payments through M-PESA STK Push. Built for the Kenyan market, it provides a seamless invoice-to-payment flow without requiring customers to install any app.
+InvoiceIQ is a minimal MVP that enables merchants to create and send invoices via WhatsApp and receive payments through M-PESA STK Push. Built for the Kenyan market, it provides a seamless invoice-to-payment flow without requiring customers to install any app.
 
 ## Features
 
 - **WhatsApp Bot Interface** - Create invoices through conversational commands
 - **M-PESA Integration** - Instant payment via M-PESA STK Push
-- **SMS Fallback** - Automatic SMS delivery when WhatsApp is unavailable
 - **Real-time Status Tracking** - Monitor invoice and payment status
 - **Privacy-First Logging** - Metadata-only storage with no PII in logs
 - **Business Metrics** - Track conversion rates and payment times
@@ -17,7 +16,7 @@ InvoiceIQ is a minimal MVP that enables merchants to create and send invoices vi
 
 - **Backend:** FastAPI (Python 3.11+)
 - **Database:** PostgreSQL (via Supabase)
-- **Messaging:** WhatsApp Business API (via 360 Dialog), SMS (Africa's Talking)
+- **Messaging:** WhatsApp Business API (via 360 Dialog)
 - **Payments:** M-PESA STK Push (Safaricom Daraja API)
 - **Deployment:** Fly.io with automatic HTTPS
 
@@ -130,15 +129,15 @@ InvoiceIQ is a minimal MVP that enables merchants to create and send invoices vi
 
    ```bash
    flyctl secrets set \
-     WABA_TOKEN="your_token" \
-     WABA_PHONE_ID="your_phone_id" \
-     WABA_VERIFY_TOKEN="your_verify_token" \
-     SMS_API_KEY="your_api_key" \
+     D360_API_KEY="your_360dialog_api_key" \
+     WEBHOOK_VERIFY_TOKEN="your_verify_token" \
      MPESA_CONSUMER_KEY="your_key" \
      MPESA_CONSUMER_SECRET="your_secret" \
      MPESA_SHORTCODE="your_shortcode" \
      MPESA_PASSKEY="your_passkey" \
-     MPESA_CALLBACK_URL="https://your-app.fly.dev/payments/stk/callback"
+     MPESA_CALLBACK_URL="https://your-app.fly.dev/payments/stk/callback" \
+     SUPABASE_URL="your_supabase_url" \
+     SUPABASE_SECRET_KEY="your_supabase_secret_key"
    ```
 
 7. **Deploy**
@@ -156,16 +155,15 @@ See `.env.example` for a complete list of required environment variables.
 
 | Variable                | Description                        | Example                                     |
 | ----------------------- | ---------------------------------- | ------------------------------------------- |
-| `WABA_TOKEN`            | WhatsApp Business API access token | `EAABsbCS1iHgBO...`                         |
-| `WABA_PHONE_ID`         | WhatsApp phone number ID           | `123456789012345`                           |
-| `WABA_VERIFY_TOKEN`     | Webhook verification token         | `your_random_token`                         |
-| `SMS_API_KEY`           | SMS provider API key               | `atsk_abc123...`                            |
+| `D360_API_KEY`          | 360 Dialog API key                 | `your_360dialog_api_key`                    |
+| `WEBHOOK_VERIFY_TOKEN`  | Webhook verification token         | `your_random_token`                         |
 | `MPESA_CONSUMER_KEY`    | M-PESA consumer key                | `abc123...`                                 |
 | `MPESA_CONSUMER_SECRET` | M-PESA consumer secret             | `xyz789...`                                 |
 | `MPESA_SHORTCODE`       | M-PESA business shortcode          | `174379`                                    |
 | `MPESA_PASSKEY`         | M-PESA Lipa Na M-PESA passkey      | `bfb279f9aa...`                             |
 | `MPESA_CALLBACK_URL`    | M-PESA STK callback URL (HTTPS)    | `https://app.fly.dev/payments/stk/callback` |
-| `DATABASE_URL`          | Database connection string         | `postgresql+asyncpg://...`                  |
+| `SUPABASE_URL`          | Supabase project URL               | `https://xxx.supabase.co`                   |
+| `SUPABASE_SECRET_KEY`   | Supabase secret key                | `sb_secret_xxx...`                          |
 
 ## API Endpoints
 
@@ -178,11 +176,6 @@ See `.env.example` for a complete list of required environment variables.
 
 - `GET /whatsapp/webhook` - Webhook verification
 - `POST /whatsapp/webhook` - Receive messages and events
-
-### SMS Webhooks
-
-- `POST /sms/inbound` - Receive inbound SMS
-- `POST /sms/status` - SMS delivery status callbacks
 
 ### Invoices
 
@@ -288,12 +281,10 @@ invoiceiq/
 │       ├── schemas.py           # Pydantic schemas
 │       ├── routers/             # API route handlers
 │       │   ├── whatsapp.py
-│       │   ├── sms.py
 │       │   ├── invoices.py
 │       │   └── payments.py
 │       ├── services/            # Business logic
 │       │   ├── whatsapp.py
-│       │   ├── sms.py
 │       │   ├── mpesa.py
 │       │   └── idempotency.py
 │       └── utils/               # Utility functions
@@ -321,7 +312,7 @@ invoiceiq/
 
 1. **Merchant** sends WhatsApp message to create invoice
 2. **Bot** validates input and creates invoice record
-3. **System** sends invoice to customer via WhatsApp/SMS
+3. **System** sends invoice to customer via WhatsApp
 4. **Customer** receives payment link, clicks "Pay with M-PESA"
 5. **M-PESA** sends STK Push to customer's phone
 6. **Customer** enters M-PESA PIN to complete payment
@@ -340,7 +331,7 @@ Three core tables:
 
 - **invoices** - Invoice records with customer info and status
 - **payments** - Payment transactions with M-PESA details
-- **message_log** - Audit trail for all messages (WhatsApp/SMS)
+- **message_log** - Audit trail for all WhatsApp messages
 
 ## Security
 
@@ -387,7 +378,6 @@ curl https://your-app-name.fly.dev/stats/summary
 
 - ✅ WhatsApp bot for invoice creation
 - ✅ M-PESA STK Push integration
-- ✅ SMS fallback delivery
 - ✅ Privacy-first logging
 - ✅ Business metrics tracking
 
@@ -435,7 +425,6 @@ chore(scope): update dependencies
 
 - **WhatsApp Business API** - 360 Dialog (Meta WhatsApp BSP)
 - **M-PESA API** - Safaricom PLC
-- **SMS Provider** - Africa's Talking
 - **Hosting** - Fly.io
 
 ---

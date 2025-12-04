@@ -20,7 +20,7 @@ from slowapi.util import get_remote_address
 
 from .config import settings
 from .db import get_supabase
-from .routers import invoice_view, invoices, payments, sms, whatsapp
+from .routers import invoice_view, invoices, payments, whatsapp
 from .services.metrics import (
     get_average_payment_time,
     get_conversion_rate,
@@ -318,7 +318,6 @@ async def stats_summary(supabase=Depends(get_supabase)) -> dict:
 
 # Register routers
 app.include_router(whatsapp.router, prefix="/whatsapp", tags=["whatsapp"])
-app.include_router(sms.router, prefix="/sms", tags=["sms"])
 app.include_router(invoices.router, prefix="/invoices", tags=["invoices"])
 app.include_router(payments.router, prefix="/payments", tags=["payments"])
 # IMPORTANT: invoice_view router MUST be registered LAST to avoid route conflicts
