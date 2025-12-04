@@ -584,12 +584,12 @@ async def receive_webhook(
 
             elif command == "help":
                 response_text = (
-                    "InvoiceIQ Bot Commands:\n\n"
-                    "- invoice: Start guided invoice creation\n"
-                    "- invoice <phone> <amount> <desc>: Quick invoice\n"
-                    "- remind <invoice_id>: Send reminder\n"
-                    "- cancel <invoice_id>: Cancel invoice\n"
-                    "- help: Show this help"
+                    "📋 InvoiceIQ Bot Commands:\n\n"
+                    "📝 invoice - Start guided invoice creation\n"
+                    "⚡ invoice <phone> <amount> <desc> - Quick invoice\n"
+                    "🔔 remind <invoice_id> - Send reminder\n"
+                    "❌ cancel <invoice_id> - Cancel invoice\n"
+                    "❓ help - Show this help"
                 )
 
             elif command == "invoice":
