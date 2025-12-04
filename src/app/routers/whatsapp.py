@@ -6,11 +6,11 @@ processing. It implements the GET endpoint for webhook verification and POST
 endpoint for receiving messages and interactive button responses.
 """
 
+import random
+import time
 from datetime import datetime
 from typing import Any, Optional
 from uuid import uuid4
-import random
-import time
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict
@@ -104,7 +104,9 @@ async def verify_webhook(
         "Webhook verification attempt",
         extra={
             "hub_mode": hub_mode,
-            "hub_verify_token": hub_verify_token[:5] + "..." if hub_verify_token else None,
+            "hub_verify_token": hub_verify_token[:5] + "..."
+            if hub_verify_token
+            else None,
         },
     )
 
@@ -175,7 +177,7 @@ async def receive_webhook(
     if not parsed_message:
         logger.warning(
             "Message parsing returned None - skipping message handling",
-            extra={"payload": payload}
+            extra={"payload": payload},
         )
         # Continue to database logging...
 
@@ -205,7 +207,12 @@ async def receive_webhook(
                 )
 
                 # Lookup invoice in database (Task 2.1)
-                invoice_response = supabase.table("invoices").select("*").eq("id", invoice_id).execute()
+                invoice_response = (
+                    supabase.table("invoices")
+                    .select("*")
+                    .eq("id", invoice_id)
+                    .execute()
+                )
                 invoice = invoice_response.data[0] if invoice_response.data else None
 
                 # Validate invoice exists
@@ -245,34 +252,49 @@ async def receive_webhook(
                     )
 
                     # Get existing payment record
-                    existing_payment_for_retry = get_payment_by_invoice_id(invoice_id, supabase)
+                    existing_payment_for_retry = get_payment_by_invoice_id(
+                        invoice_id, supabase
+                    )
 
                     if not existing_payment_for_retry:
                         logger.warning(
                             "No payment record found for FAILED invoice",
                             extra={"invoice_id": invoice_id},
                         )
-                        response_text = "Payment record not found. Please contact support."
+                        response_text = (
+                            "Payment record not found. Please contact support."
+                        )
                     else:
                         # Check if retry is allowed
-                        can_retry_result, error_message = can_retry_payment(existing_payment_for_retry)
+                        can_retry_result, error_message = can_retry_payment(
+                            existing_payment_for_retry
+                        )
 
                         if not can_retry_result:
                             logger.info(
                                 "Payment retry blocked",
-                                extra={"invoice_id": invoice_id, "reason": error_message},
+                                extra={
+                                    "invoice_id": invoice_id,
+                                    "reason": error_message,
+                                },
                             )
                             response_text = error_message
                         else:
                             # Increment retry count on existing payment
                             from datetime import timezone
 
-                            current_retry_count = existing_payment_for_retry.get("retry_count", 0)
+                            current_retry_count = existing_payment_for_retry.get(
+                                "retry_count", 0
+                            )
                             try:
-                                supabase.table("payments").update({
-                                    "retry_count": current_retry_count + 1,
-                                    "updated_at": datetime.now(timezone.utc).isoformat()
-                                }).eq("id", existing_payment_for_retry["id"]).execute()
+                                supabase.table("payments").update(
+                                    {
+                                        "retry_count": current_retry_count + 1,
+                                        "updated_at": datetime.now(
+                                            timezone.utc
+                                        ).isoformat(),
+                                    }
+                                ).eq("id", existing_payment_for_retry["id"]).execute()
 
                                 logger.info(
                                     "Incremented payment retry_count for retry attempt",
@@ -328,7 +350,9 @@ async def receive_webhook(
                 else:
                     # Invoice is valid for payment - initiate STK Push
                     try:
-                        mpesa_service = MPesaService(environment=settings.mpesa_environment)
+                        mpesa_service = MPesaService(
+                            environment=settings.mpesa_environment
+                        )
 
                         # Generate idempotency key
                         idempotency_key = f"{invoice_id}-button-{int(time.time())}"
@@ -342,14 +366,21 @@ async def receive_webhook(
                             .limit(1)
                             .execute()
                         )
-                        existing_payment = existing_payment_response.data[0] if existing_payment_response.data else None
+                        existing_payment = (
+                            existing_payment_response.data[0]
+                            if existing_payment_response.data
+                            else None
+                        )
 
                         if existing_payment:
                             if existing_payment["status"] == "INITIATED":
                                 # Payment in progress
                                 logger.info(
                                     "Payment already initiated",
-                                    extra={"invoice_id": invoice_id, "payment_id": existing_payment["id"]},
+                                    extra={
+                                        "invoice_id": invoice_id,
+                                        "payment_id": existing_payment["id"],
+                                    },
                                 )
                                 response_text = (
                                     "Payment request already sent! Check your phone for the M-PESA prompt. "
@@ -357,34 +388,44 @@ async def receive_webhook(
                                 )
                             elif existing_payment["status"] == "SUCCESS":
                                 # Already paid
-                                response_text = (
-                                    f"This invoice has already been paid. Receipt: {existing_payment.get('mpesa_receipt') or 'N/A'}"
-                                )
+                                response_text = f"This invoice has already been paid. Receipt: {existing_payment.get('mpesa_receipt') or 'N/A'}"
                             elif existing_payment["status"] == "FAILED":
                                 # Previous attempt failed, check cooldown period
-                                updated_at = datetime.fromisoformat(existing_payment["updated_at"].replace("Z", "+00:00"))
-                                time_since_failure = (datetime.utcnow() - updated_at.replace(tzinfo=None)).total_seconds()
-                                if time_since_failure < 120:  # 2 minutes cooldown
-                                    response_text = (
-                                        f"Previous payment failed. Please wait {int(120 - time_since_failure)} seconds before retrying."
+                                updated_at = datetime.fromisoformat(
+                                    existing_payment["updated_at"].replace(
+                                        "Z", "+00:00"
                                     )
+                                )
+                                time_since_failure = (
+                                    datetime.utcnow() - updated_at.replace(tzinfo=None)
+                                ).total_seconds()
+                                if time_since_failure < 120:  # 2 minutes cooldown
+                                    response_text = f"Previous payment failed. Please wait {int(120 - time_since_failure)} seconds before retrying."
                                 else:
                                     # Allow retry (continue with STK Push creation)
                                     logger.info(
                                         "Retrying payment after previous failure",
-                                        extra={"invoice_id": invoice_id, "previous_payment_id": existing_payment["id"]},
+                                        extra={
+                                            "invoice_id": invoice_id,
+                                            "previous_payment_id": existing_payment[
+                                                "id"
+                                            ],
+                                        },
                                     )
                                     # Continue to STK Push initiation (don't set response_text)
-                                    existing_payment = None  # Reset to allow continuation
+                                    existing_payment = (
+                                        None  # Reset to allow continuation
+                                    )
                             else:
                                 # Unknown status
                                 logger.warning(
                                     "Payment exists with unknown status",
-                                    extra={"invoice_id": invoice_id, "status": existing_payment["status"]},
+                                    extra={
+                                        "invoice_id": invoice_id,
+                                        "status": existing_payment["status"],
+                                    },
                                 )
-                                response_text = (
-                                    f"Payment status unclear ({existing_payment['status']}). Please contact the merchant."
-                                )
+                                response_text = f"Payment status unclear ({existing_payment['status']}). Please contact the merchant."
 
                         if not existing_payment:
                             # Convert amount from cents to whole KES
@@ -403,7 +444,11 @@ async def receive_webhook(
                                 "mpesa_receipt": None,
                             }
 
-                            payment_response = supabase.table("payments").insert(payment_data).execute()
+                            payment_response = (
+                                supabase.table("payments")
+                                .insert(payment_data)
+                                .execute()
+                            )
                             payment = payment_response.data[0]
 
                             # Prepare STK Push request (M-PESA field limits)
@@ -411,7 +456,9 @@ async def receive_webhook(
                             payment_method = invoice.get("mpesa_method")
                             if payment_method == "PAYBILL":
                                 # For PAYBILL: use the merchant's paybill account number
-                                account_reference = invoice.get("mpesa_account_number", invoice["id"][:20])
+                                account_reference = invoice.get(
+                                    "mpesa_account_number", invoice["id"][:20]
+                                )
                             else:
                                 # For TILL (or fallback): use invoice ID
                                 account_reference = invoice["id"][:20]
@@ -439,11 +486,17 @@ async def receive_webhook(
                                     "transaction_desc": transaction_desc,
                                     "stk_response": stk_response,
                                 },
-                                "checkout_request_id": stk_response.get("CheckoutRequestID"),
-                                "merchant_request_id": stk_response.get("MerchantRequestID"),
+                                "checkout_request_id": stk_response.get(
+                                    "CheckoutRequestID"
+                                ),
+                                "merchant_request_id": stk_response.get(
+                                    "MerchantRequestID"
+                                ),
                             }
 
-                            supabase.table("payments").update(updated_payment_data).eq("id", payment["id"]).execute()
+                            supabase.table("payments").update(updated_payment_data).eq(
+                                "id", payment["id"]
+                            ).execute()
                             payment.update(updated_payment_data)
 
                             logger.info(
@@ -472,16 +525,20 @@ async def receive_webhook(
                             exc_info=True,
                         )
                         # Update payment status to FAILED if it was created
-                        if 'payment' in locals():
+                        if "payment" in locals():
                             failed_payment_data = {
                                 "status": "FAILED",
                                 "raw_request": {
                                     "error": str(stk_error),
                                     "phone_number": sender,
-                                    "amount": amount_kes if 'amount_kes' in locals() else None,
+                                    "amount": amount_kes
+                                    if "amount_kes" in locals()
+                                    else None,
                                 },
                             }
-                            supabase.table("payments").update(failed_payment_data).eq("id", payment["id"]).execute()
+                            supabase.table("payments").update(failed_payment_data).eq(
+                                "id", payment["id"]
+                            ).execute()
 
                         response_text = (
                             "Failed to initiate payment. Please try again or contact support. "
@@ -499,18 +556,28 @@ async def receive_webhook(
                         "payload": {
                             "button_id": message_text,
                             "invoice_id": invoice_id,
-                            "payment_initiated": 'payment' in locals() and payment.get("status") == "INITIATED",
-                            "payment_id": payment["id"] if 'payment' in locals() else None,
-                            "stk_request_sent": 'stk_response' in locals(),
+                            "payment_initiated": "payment" in locals()
+                            and payment.get("status") == "INITIATED",
+                            "payment_id": payment["id"]
+                            if "payment" in locals()
+                            else None,
+                            "stk_request_sent": "stk_response" in locals(),
                             "timestamp": datetime.utcnow().isoformat(),
                         },
                     }
-                    button_click_response = supabase.table("message_log").insert(button_click_log_data).execute()
+                    button_click_response = (
+                        supabase.table("message_log")
+                        .insert(button_click_log_data)
+                        .execute()
+                    )
                     button_click_log = button_click_response.data[0]
 
                     logger.info(
                         "Button click logged",
-                        extra={"invoice_id": invoice_id, "message_log_id": button_click_log["id"]},
+                        extra={
+                            "invoice_id": invoice_id,
+                            "message_log_id": button_click_log["id"],
+                        },
                     )
                 except Exception as log_error:
                     logger.error(
@@ -522,28 +589,27 @@ async def receive_webhook(
                 # Handle undo button click
                 # Get user state to check if they're in a flow
                 state_info = whatsapp_service.state_manager.get_state(sender)
-                is_in_flow = state_info["state"] != whatsapp_service.state_manager.STATE_IDLE
+                is_in_flow = (
+                    state_info["state"] != whatsapp_service.state_manager.STATE_IDLE
+                )
 
                 if is_in_flow:
                     # User is in flow, process the undo action
                     flow_result = whatsapp_service.go_back(sender)
                     response_text = flow_result.get(
                         "response",
-                        "Sorry, something went wrong. Please start over by sending 'invoice'."
+                        "Sorry, something went wrong. Please start over by sending 'invoice'.",
                     )
 
                     logger.info(
                         "Undo button clicked and processed",
-                        extra={
-                            "sender": sender,
-                            "action": flow_result.get("action")
-                        }
+                        extra={"sender": sender, "action": flow_result.get("action")},
                     )
                 else:
                     # User clicked undo but is not in a flow
                     logger.warning(
                         "Undo button clicked but user not in flow",
-                        extra={"sender": sender}
+                        extra={"sender": sender},
                     )
                     response_text = "No active flow to undo. Send 'invoice' to start."
 
@@ -557,13 +623,15 @@ async def receive_webhook(
 
         # Initialize flow_result to track show_back_button flag
         # (may have been set by undo button handler above)
-        if 'flow_result' not in locals():
+        if "flow_result" not in locals():
             flow_result = {}
 
         # Check if user has active state or is starting a new flow (if not already checked)
-        if 'state_info' not in locals():
+        if "state_info" not in locals():
             state_info = whatsapp_service.state_manager.get_state(sender)
-            is_in_flow = state_info["state"] != whatsapp_service.state_manager.STATE_IDLE
+            is_in_flow = (
+                state_info["state"] != whatsapp_service.state_manager.STATE_IDLE
+            )
 
         # Parse command if not in flow and not already handled
         if not is_in_flow and response_text is None:
@@ -583,7 +651,7 @@ async def receive_webhook(
 
             elif command == "help":
                 response_text = (
-                    "📋 InvoiceIQ Bot Commands:\n\n"
+                    "📋 InvoiceIQ Commands:\n\n"
                     "📝 invoice - Start guided invoice creation\n"
                     "🔔 remind <invoice_id> - Send reminder\n"
                     "❌ cancel <invoice_id> - Cancel invoice\n"
@@ -607,9 +675,7 @@ async def receive_webhook(
                 response_text = f"Cancellation of invoice {params.get('invoice_id')} will be implemented in a future phase."
 
             elif command == "unknown":
-                response_text = (
-                    "I didn't understand that command. Send 'help' for available commands."
-                )
+                response_text = "I didn't understand that command. Send 'help' for available commands."
 
         elif is_in_flow and response_text is None:
             # User is in guided flow
@@ -625,7 +691,9 @@ async def receive_webhook(
             )
 
             # If user confirmed, create the invoice
-            if flow_result.get("action") == "confirmed" and flow_result.get("invoice_data"):
+            if flow_result.get("action") == "confirmed" and flow_result.get(
+                "invoice_data"
+            ):
                 invoice_data_from_flow = flow_result["invoice_data"]
 
                 # Import invoice_parser utilities
@@ -641,13 +709,25 @@ async def receive_webhook(
                     customer_phone = invoice_data_from_flow["phone"]
                     customer_name = invoice_data_from_flow.get("name")
                     mpesa_method = invoice_data_from_flow.get("mpesa_method")
-                    mpesa_paybill_number = invoice_data_from_flow.get("mpesa_paybill_number")
-                    mpesa_account_number = invoice_data_from_flow.get("mpesa_account_number")
+                    mpesa_paybill_number = invoice_data_from_flow.get(
+                        "mpesa_paybill_number"
+                    )
+                    mpesa_account_number = invoice_data_from_flow.get(
+                        "mpesa_account_number"
+                    )
                     mpesa_till_number = invoice_data_from_flow.get("mpesa_till_number")
-                    mpesa_phone_number = invoice_data_from_flow.get("mpesa_phone_number")
-                    save_payment_method = invoice_data_from_flow.get("save_payment_method", False)
-                    used_saved_method = invoice_data_from_flow.get("used_saved_method", False)
-                    c2b_notifications_enabled = invoice_data_from_flow.get("c2b_notifications_enabled", False)
+                    mpesa_phone_number = invoice_data_from_flow.get(
+                        "mpesa_phone_number"
+                    )
+                    save_payment_method = invoice_data_from_flow.get(
+                        "save_payment_method", False
+                    )
+                    used_saved_method = invoice_data_from_flow.get(
+                        "used_saved_method", False
+                    )
+                    c2b_notifications_enabled = invoice_data_from_flow.get(
+                        "c2b_notifications_enabled", False
+                    )
 
                     # Calculate totals from line items
                     totals = calculate_invoice_totals(line_items, include_vat)
@@ -682,7 +762,9 @@ async def receive_webhook(
                         "pay_link": None,
                     }
 
-                    invoice_response = supabase.table("invoices").insert(invoice_data).execute()
+                    invoice_response = (
+                        supabase.table("invoices").insert(invoice_data).execute()
+                    )
                     invoice = invoice_response.data[0]
 
                     logger.info(
@@ -696,8 +778,14 @@ async def receive_webhook(
                         try:
                             # Determine shortcode and type
                             shortcode = mpesa_paybill_number or mpesa_till_number
-                            shortcode_type = "PAYBILL" if mpesa_paybill_number else "TILL"
-                            account_number = mpesa_account_number if shortcode_type == "PAYBILL" else None
+                            shortcode_type = (
+                                "PAYBILL" if mpesa_paybill_number else "TILL"
+                            )
+                            account_number = (
+                                mpesa_account_number
+                                if shortcode_type == "PAYBILL"
+                                else None
+                            )
 
                             logger.info(
                                 "Checking C2B registration status",
@@ -717,9 +805,13 @@ async def receive_webhook(
 
                             # Add account_number filter for PAYBILL
                             if account_number:
-                                registration_query = registration_query.eq("account_number", account_number)
+                                registration_query = registration_query.eq(
+                                    "account_number", account_number
+                                )
                             else:
-                                registration_query = registration_query.is_("account_number", "null")
+                                registration_query = registration_query.is_(
+                                    "account_number", "null"
+                                )
 
                             existing_registration = registration_query.execute()
 
@@ -729,26 +821,41 @@ async def receive_webhook(
                                     extra={
                                         "shortcode": shortcode,
                                         "account_number": account_number,
-                                        "registration_id": existing_registration.data[0]["id"],
-                                        "status": existing_registration.data[0]["registration_status"],
+                                        "registration_id": existing_registration.data[
+                                            0
+                                        ]["id"],
+                                        "status": existing_registration.data[0][
+                                            "registration_status"
+                                        ],
                                     },
                                 )
                             else:
                                 # Register with Daraja
                                 logger.info(
                                     "Registering C2B URLs with M-PESA",
-                                    extra={"shortcode": shortcode, "shortcode_type": shortcode_type},
+                                    extra={
+                                        "shortcode": shortcode,
+                                        "shortcode_type": shortcode_type,
+                                    },
                                 )
 
-                                mpesa_service = MPesaService(environment=settings.mpesa_environment)
-                                registration_result = await mpesa_service.register_c2b_url(
-                                    shortcode=shortcode,
-                                    shortcode_type=shortcode_type,
-                                    account_number=account_number,
+                                mpesa_service = MPesaService(
+                                    environment=settings.mpesa_environment
+                                )
+                                registration_result = (
+                                    await mpesa_service.register_c2b_url(
+                                        shortcode=shortcode,
+                                        shortcode_type=shortcode_type,
+                                        account_number=account_number,
+                                    )
                                 )
 
                                 # Store registration result
-                                registration_status = "SUCCESS" if registration_result["success"] else "FAILED"
+                                registration_status = (
+                                    "SUCCESS"
+                                    if registration_result["success"]
+                                    else "FAILED"
+                                )
                                 registration_data = {
                                     "shortcode": shortcode,
                                     "shortcode_type": shortcode_type,
@@ -759,7 +866,9 @@ async def receive_webhook(
                                     "daraja_response": registration_result,
                                 }
 
-                                supabase.table("c2b_registrations").insert(registration_data).execute()
+                                supabase.table("c2b_registrations").insert(
+                                    registration_data
+                                ).execute()
 
                                 if registration_result["success"]:
                                     logger.info(
@@ -767,7 +876,9 @@ async def receive_webhook(
                                         extra={
                                             "shortcode": shortcode,
                                             "account_number": account_number,
-                                            "response_code": registration_result["response_code"],
+                                            "response_code": registration_result[
+                                                "response_code"
+                                            ],
                                         },
                                     )
                                 else:
@@ -776,8 +887,12 @@ async def receive_webhook(
                                         extra={
                                             "shortcode": shortcode,
                                             "account_number": account_number,
-                                            "response_code": registration_result["response_code"],
-                                            "response_description": registration_result["response_description"],
+                                            "response_code": registration_result[
+                                                "response_code"
+                                            ],
+                                            "response_description": registration_result[
+                                                "response_description"
+                                            ],
                                         },
                                     )
 
@@ -786,7 +901,9 @@ async def receive_webhook(
                                 "C2B registration failed but invoice creation continues",
                                 extra={
                                     "error": str(c2b_error),
-                                    "shortcode": shortcode if 'shortcode' in locals() else None,
+                                    "shortcode": shortcode
+                                    if "shortcode" in locals()
+                                    else None,
                                     "invoice_id": invoice["id"],
                                 },
                                 exc_info=True,
@@ -800,21 +917,37 @@ async def receive_webhook(
                                 "id": str(uuid4()),
                                 "merchant_msisdn": sender,
                                 "method_type": mpesa_method,
-                                "paybill_number": mpesa_paybill_number if mpesa_method == "PAYBILL" else None,
-                                "account_number": mpesa_account_number if mpesa_method == "PAYBILL" else None,
-                                "till_number": mpesa_till_number if mpesa_method == "TILL" else None,
-                                "phone_number": mpesa_phone_number if mpesa_method == "PHONE" else None,
+                                "paybill_number": mpesa_paybill_number
+                                if mpesa_method == "PAYBILL"
+                                else None,
+                                "account_number": mpesa_account_number
+                                if mpesa_method == "PAYBILL"
+                                else None,
+                                "till_number": mpesa_till_number
+                                if mpesa_method == "TILL"
+                                else None,
+                                "phone_number": mpesa_phone_number
+                                if mpesa_method == "PHONE"
+                                else None,
                                 "is_default": False,
                             }
-                            supabase.table("merchant_payment_methods").insert(payment_method_data).execute()
+                            supabase.table("merchant_payment_methods").insert(
+                                payment_method_data
+                            ).execute()
                             logger.info(
                                 "Payment method saved",
-                                extra={"merchant_msisdn": sender, "method_type": mpesa_method},
+                                extra={
+                                    "merchant_msisdn": sender,
+                                    "method_type": mpesa_method,
+                                },
                             )
                         except Exception as save_error:
                             logger.error(
                                 "Failed to save payment method",
-                                extra={"error": str(save_error), "merchant_msisdn": sender},
+                                extra={
+                                    "error": str(save_error),
+                                    "merchant_msisdn": sender,
+                                },
                                 exc_info=True,
                             )
                             # Don't fail invoice creation if payment method save fails
@@ -831,7 +964,9 @@ async def receive_webhook(
 
                     # Update invoice status
                     if send_success:
-                        supabase.table("invoices").update({"status": "SENT"}).eq("id", invoice["id"]).execute()
+                        supabase.table("invoices").update({"status": "SENT"}).eq(
+                            "id", invoice["id"]
+                        ).execute()
                         invoice["status"] = "SENT"
 
                         # Send merchant confirmation
@@ -861,9 +996,7 @@ async def receive_webhook(
                         extra={"error": str(invoice_error), "merchant_msisdn": sender},
                         exc_info=True,
                     )
-                    response_text = (
-                        "Failed to create invoice. Please try again by sending 'invoice'."
-                    )
+                    response_text = "Failed to create invoice. Please try again by sending 'invoice'."
 
         # Send response to user
         if response_text:
@@ -875,18 +1008,26 @@ async def receive_webhook(
                 extra={
                     "sender": sender,
                     "response_length": len(response_text),
-                    "response_preview": response_text[:100] if len(response_text) > 100 else response_text,
+                    "response_preview": response_text[:100]
+                    if len(response_text) > 100
+                    else response_text,
                     "show_back_button": show_back_button,
                 },
             )
             try:
                 if show_back_button:
-                    await whatsapp_service.send_message_with_back_button(sender, response_text)
+                    await whatsapp_service.send_message_with_back_button(
+                        sender, response_text
+                    )
                 else:
                     await whatsapp_service.send_message(sender, response_text)
                 logger.info(
                     "Response sent to user successfully",
-                    extra={"sender": sender, "response_length": len(response_text), "with_back_button": show_back_button},
+                    extra={
+                        "sender": sender,
+                        "response_length": len(response_text),
+                        "with_back_button": show_back_button,
+                    },
                 )
             except Exception as send_error:
                 logger.error(
@@ -932,7 +1073,9 @@ async def receive_webhook(
             },
         }
 
-        message_log_response = supabase.table("message_log").insert(message_log_data).execute()
+        message_log_response = (
+            supabase.table("message_log").insert(message_log_data).execute()
+        )
         message_log = message_log_response.data[0]
 
         logger.info(
@@ -950,3 +1093,4 @@ async def receive_webhook(
         # Just log the error and continue
 
     return {"status": "received"}
+
